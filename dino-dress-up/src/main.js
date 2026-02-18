@@ -12,6 +12,27 @@
  *   6. Render loop start
  */
 
+// ── Global error handler (catches module-level errors) ──────────────────
+window.__DINO_ERRORS = [];
+window.onerror = (msg, src, line, col, err) => {
+  console.error('[DINO FATAL]', msg, src, line, col, err);
+  window.__DINO_ERRORS.push({ msg, src, line, col, err: String(err) });
+  const status = document.getElementById('loading-status');
+  if (status) {
+    status.textContent = 'Error: ' + msg;
+    status.style.color = '#e84a2a';
+  }
+};
+window.addEventListener('unhandledrejection', (e) => {
+  console.error('[DINO UNHANDLED REJECTION]', e.reason);
+  const status = document.getElementById('loading-status');
+  if (status) {
+    status.textContent = 'Error: ' + (e.reason?.message || e.reason || 'Unknown async error');
+    status.style.color = '#e84a2a';
+  }
+});
+console.log('[DINO] main.js module executing...');
+
 // ── Core engine ──────────────────────────────────────────────────────────
 import { initGPUContext } from './core/gpu-context.js';
 import { Renderer } from './core/renderer.js';
@@ -50,6 +71,8 @@ import { FinishedScreen } from './screens/finished-screen.js';
 import { ClothingPanel } from './ui/clothing-panel.js';
 import { Toolbar } from './ui/toolbar.js';
 import { DragDropHandler } from './ui/drag-drop.js';
+
+console.log('[DINO] All modules imported successfully');
 
 // ═══════════════════════════════════════════════════════════════════════════
 // HELPERS
@@ -94,6 +117,7 @@ function showApp() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function init() {
+  console.log('[DINO] init() called');
   console.log('🦖 Dino Dress-Up — Initializing...');
   updateLoadingUI(0, 'Starting up…');
 
@@ -126,6 +150,7 @@ async function init() {
     console.info('Running in Canvas2D fallback mode.');
   }
 
+  console.log('[DINO] GPU context initialized:', gpuContext.mode);
   updateLoadingUI(0.1, 'Graphics ready…');
 
   // ── 2. Core engine objects ─────────────────────────────────────────────
@@ -136,6 +161,7 @@ async function init() {
   const renderer = new Renderer(gpuContext, textureManager);
   renderer.setScene(scene);
 
+  console.log('[DINO] Core engine objects created (TextureManager, Scene, Renderer)');
   updateLoadingUI(0.15, 'Loading dinosaurs…');
 
   // ── 3. Preload dinosaur textures ───────────────────────────────────────
@@ -155,6 +181,8 @@ async function init() {
     updateLoadingUI(progress, 'Loading assets… (' + loadedCount + '/' + totalAssets + ')');
   }
 
+  console.log('[DINO] Dinosaur textures loaded (' + dinoIds.length + ' dinos)');
+
   // ── 4. Preload clothing textures ───────────────────────────────────────
   updateLoadingUI(0.25, 'Loading clothing…');
 
@@ -171,6 +199,7 @@ async function init() {
     updateLoadingUI(progress, 'Loading assets… (' + loadedCount + '/' + totalAssets + ')');
   }
 
+  console.log('[DINO] All ' + totalAssets + ' assets loaded');
   updateLoadingUI(0.9, 'Setting up UI…');
 
   // ── 5. Screen Manager ─────────────────────────────────────────────────
@@ -179,7 +208,9 @@ async function init() {
   // ── 6. Select Screen ──────────────────────────────────────────────────
   const selectContainer = document.getElementById('screen-selection');
   const selectScreen = new SelectScreen({ container: selectContainer });
+  console.log('[DINO] SelectScreen created, calling init()...');
   selectScreen.init();
+  console.log('[DINO] SelectScreen.init() completed');
 
   screenManager.onEnter('select', () => selectScreen.onEnter());
   screenManager.onExit('select', () => selectScreen.onExit());
@@ -192,12 +223,15 @@ async function init() {
     textureManager,
     renderer,
   });
+  console.log('[DINO] DressingScreen created, calling init()...');
   dressingScreen.init();
+  console.log('[DINO] DressingScreen.init() completed');
 
   screenManager.onEnter('dressing', () => dressingScreen.onEnter());
   screenManager.onExit('dressing', () => dressingScreen.onExit());
 
   // ── 8. Toolbar ────────────────────────────────────────────────────────
+  console.log('[DINO] Creating Toolbar...');
   const toolbarContainer = document.getElementById('toolbar');
   const toolbar = new Toolbar(toolbarContainer, {
     onBack: () => {
@@ -216,6 +250,7 @@ async function init() {
   });
 
   // ── 9. Clothing Panel ─────────────────────────────────────────────────
+  console.log('[DINO] Creating ClothingPanel...');
   const sidebarContainer = document.getElementById('sidebar');
   const clothingPanel = new ClothingPanel(sidebarContainer, {
     categories: ASSET_MANIFEST.categories,
@@ -269,15 +304,19 @@ async function init() {
   });
 
   // ── 13. Initialise Screen Manager (must be last) ──────────────────────
+  console.log('[DINO] Calling screenManager.init()...');
   screenManager.init();
+  console.log('[DINO] screenManager.init() completed');
 
   // ── 14. Start render loop ─────────────────────────────────────────────
+  console.log('[DINO] Starting render loop...');
   renderer.start();
 
   // ── 15. Reveal the app ────────────────────────────────────────────────
   updateLoadingUI(1, 'Ready!');
   // Small delay so the progress bar visually reaches 100%
   await new Promise((resolve) => setTimeout(resolve, 300));
+  console.log('[DINO] Calling showApp() - revealing the app...');
   showApp();
 
   console.log('🦖 Dino Dress-Up — Ready!');
@@ -314,5 +353,6 @@ if (document.readyState === 'loading') {
 } else {
   boot();
 }
+
 
 
