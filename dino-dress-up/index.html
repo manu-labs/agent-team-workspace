@@ -183,6 +183,71 @@
 
     </section><!-- /#screen-dressing -->
 
+    <!-- =================================================================
+         SCREEN: FINISHED
+         Shown after the player clicks "Done!" — celebrate their outfit!
+    ================================================================= -->
+    <section
+      id="screen-finished"
+      class="screen screen-finished hidden"
+      aria-label="Your finished look"
+    >
+
+      <header class="finished-header">
+        <h1 class="finished-title">
+          <span class="title-emoji" aria-hidden="true">🎉</span>
+          Looking Amazing!
+          <span class="title-emoji" aria-hidden="true">✨</span>
+        </h1>
+        <p class="finished-subtitle">What a stylish dinosaur!</p>
+      </header>
+
+      <!-- Snapshot of the finished outfit (shared canvas reused at higher res) -->
+      <div class="finished-canvas-area">
+        <div class="finished-canvas-wrapper">
+          <canvas
+            id="finished-canvas"
+            width="800"
+            height="800"
+            aria-label="Your dinosaur's finished outfit"
+          ></canvas>
+        </div>
+      </div>
+
+      <!-- Action buttons -->
+      <div class="finished-actions" role="group" aria-label="What would you like to do?">
+
+        <button
+          id="btn-save-image"
+          class="btn btn-primary"
+          aria-label="Save a picture of your dinosaur"
+        >
+          📸 Save Picture
+        </button>
+
+        <button
+          id="btn-dress-again"
+          class="btn btn-accent"
+          aria-label="Go back and change the outfit"
+        >
+          👗 Dress Again
+        </button>
+
+        <button
+          id="btn-new-dino"
+          class="btn btn-secondary"
+          aria-label="Pick a different dinosaur"
+        >
+          🦖 New Dino
+        </button>
+
+      </div><!-- /.finished-actions -->
+
+      <!-- Confetti layer for the celebration burst -->
+      <div id="finished-confetti" class="confetti-layer" aria-hidden="true"></div>
+
+    </section><!-- /#screen-finished -->
+
   </div><!-- /#app -->
 
   <!-- =====================================================================
