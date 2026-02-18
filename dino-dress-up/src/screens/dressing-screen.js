@@ -284,9 +284,15 @@ export class DressingScreen {
     // Re-configure the rendering context now that the canvas is visible.
     // The canvas was display:none when initGPUContext() first ran, so
     // WebGPU's getCurrentTexture() would have returned a zero-size texture.
+    // NOTE: renderer.start() was already called in main.js step 14, so
+    // _running is true and start() is a no-op. We must reconfigure and
+    // then force an immediate render frame with the fresh context.
     this._renderer.reconfigure();
     this._renderer.start();
     this._scene.markDirty();
+    // Force an immediate render with the reconfigured context — don't
+    // wait for the next rAF tick which may still use a stale texture.
+    this._renderer.render(performance.now());
   }
 
   onExit() {
