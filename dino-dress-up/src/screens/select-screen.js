@@ -92,7 +92,7 @@ export class SelectScreen {
    * when clicked.
    */
   show() {
-    if (\!this._initialized) {
+    if (!this._initialized) {
       this._buildUI();
       this._initialized = true;
     }
@@ -155,7 +155,7 @@ export class SelectScreen {
 
     for (const dinoMeta of dinoEntries) {
       const pathData = DINO_PATHS[dinoMeta.id];
-      if (\!pathData) continue;
+      if (!pathData) continue;
 
       // Create a mini preview canvas for the card
       const previewCanvas = this._createPreviewCanvas(dinoMeta.id, pathData);
@@ -179,7 +179,7 @@ export class SelectScreen {
     }
 
     // Append grid if we created a new one
-    if (\!existingGrid) {
+    if (!existingGrid) {
       this._container.appendChild(grid);
     }
   }
@@ -234,9 +234,9 @@ export class SelectScreen {
    */
   _getDescription(dinoId) {
     const descriptions = {
-      trex:         'Tiny arms, big style\! This fearsome fashionista is ready for a makeover.',
-      triceratops:  'Three horns, infinite charm\! Cera loves a good accessory.',
-      stegosaurus:  'Plates up, dressed to impress\! Steggy is the runway star.',
+      trex:         'Tiny arms, big style! This fearsome fashionista is ready for a makeover.',
+      triceratops:  'Three horns, infinite charm! Cera loves a good accessory.',
+      stegosaurus:  'Plates up, dressed to impress! Steggy is the runway star.',
     };
     return descriptions[dinoId] || 'A stylish dinosaur awaiting your creative touch.';
   }
@@ -279,7 +279,7 @@ export class SelectScreen {
     canvas.height = PREVIEW_SIZE;
 
     const ctx = canvas.getContext('2d');
-    if (\!ctx || \!pathData.paths) return canvas;
+    if (!ctx || !pathData.paths) return canvas;
 
     const scaleX = PREVIEW_SIZE / pathData.width;
     const scaleY = PREVIEW_SIZE / pathData.height;
@@ -297,16 +297,16 @@ export class SelectScreen {
 
       const path = new Path2D(segment.d);
 
-      if (segment.opacity \!== undefined) {
+      if (segment.opacity !== undefined) {
         ctx.globalAlpha = segment.opacity;
       }
 
-      if (segment.fill && segment.fill \!== 'none') {
+      if (segment.fill && segment.fill !== 'none') {
         ctx.fillStyle = segment.fill;
         ctx.fill(path);
       }
 
-      if (segment.stroke && segment.stroke \!== 'none') {
+      if (segment.stroke && segment.stroke !== 'none') {
         ctx.strokeStyle = segment.stroke;
         ctx.lineWidth   = segment.strokeWidth || 1;
         ctx.lineCap     = 'round';
