@@ -2,102 +2,142 @@
  * screen-manager.js - Screen transition manager
  * Part of the Dino Dress-Up state management system
  *
- * Manages screen visibility based on the store's currentScreen state.
- * Handles CSS transitions between screens (fade/slide).
+ * Manages transitions between the three game screens:
+ *   - "select"   -> Dinosaur selection screen
+ *   - "dressing" -> Main dressing room
+ *   - "finished" -> Final dressed view
+ *
+ * Listens to store.currentScreen changes and shows/hides
+ * the corresponding DOM sections with CSS transitions.
  */
 
 import { store } from "../state/store.js";
 
+/** Screen ID -> DOM element ID */
+const SCREEN_ELEMENTS = new Map([
+  ["select",   "screen-selection"],
+  ["dressing", "screen-dressing"],
+  ["finished", "screen-finished"],
+]);
+
+const ACTIVE_CLASS = "screen-active";
+const HIDDEN_CLASS = "hidden";
+
 export class ScreenManager {
-  /**
-   * @param {Object} screens - Map of screen ID to DOM element
-   * @param {HTMLElement} screens.select - Selection screen element
-   * @param {HTMLElement} screens.dressing - Dressing room element
-   * @param {HTMLElement} [screens.finished] - Finished screen element
-   */
-  constructor(screens) {
-    this._screens = screens;
+  constructor() {
+    /** @type {Map<string, HTMLElement>} Resolved DOM elements */
+    this._screens = new Map();
+
+    /** @type {string|null} Currently active screen ID */
     this._currentScreen = null;
-    this._onScreenChange = null;
 
-    // Subscribe to screen changes
-    this._unsub = store.subscribe("currentScreen", (state) => {
-      this._transitionTo(state.currentScreen);
-    });
+    /** @type {Function|null} Store unsubscribe function */
+    this._unsubscribe = null;
+
+    /** @type {Map<string, Function>} Screen enter/exit callbacks */
+    this._onEnter = new Map();
+    this._onExit = new Map();
   }
 
   /**
-   * Set an optional callback for screen transitions.
-   * Called after the new screen is shown.
-   * @param {Function} callback - (screenName) => void
-   */
-  onTransition(callback) {
-    this._onScreenChange = callback;
-  }
-
-  /**
-   * Initialize the screen manager with the current state.
-   * Call once after DOM is ready.
+   * Initialize the screen manager.
+   * Resolves DOM elements and subscribes to store changes.
    */
   init() {
-    const state = store.getState();
-    this._showScreen(state.currentScreen);
-    this._currentScreen = state.currentScreen;
-  }
-
-  /**
-   * Transition to a new screen with animation.
-   * @param {string} screenName
-   */
-  _transitionTo(screenName) {
-    if (screenName === this._currentScreen) return;
-
-    const outEl = this._screens[this._currentScreen];
-    const inEl = this._screens[screenName];
-
-    // Hide old screen
-    if (outEl) {
-      outEl.classList.remove("active");
-      outEl.classList.add("hidden");
-    }
-
-    // Show new screen
-    if (inEl) {
-      inEl.classList.remove("hidden");
-      // Trigger reflow for animation
-      void inEl.offsetHeight;
-      inEl.classList.add("active");
-    }
-
-    this._currentScreen = screenName;
-
-    // Notify callback
-    if (this._onScreenChange) {
-      this._onScreenChange(screenName);
-    }
-  }
-
-  /**
-   * Show a screen without animation (used for initial state).
-   * @param {string} screenName
-   */
-  _showScreen(screenName) {
-    for (const [name, el] of Object.entries(this._screens)) {
-      if (!el) continue;
-      if (name === screenName) {
-        el.classList.remove("hidden");
-        el.classList.add("active");
+    for (const [screenId, elementId] of SCREEN_ELEMENTS) {
+      const el = document.getElementById(elementId);
+      if (el) {
+        this._screens.set(screenId, el);
       } else {
-        el.classList.add("hidden");
-        el.classList.remove("active");
+        console.warn("ScreenManager: element #" + elementId + " not found");
       }
     }
+
+    this._unsubscribe = store.subscribe("currentScreen", (state) => {
+      this._transition(state.currentScreen);
+    });
+
+    const initialScreen = store.get("currentScreen") || "select";
+    this._transition(initialScreen);
   }
 
   /**
-   * Clean up subscriptions.
+   * Register a callback for when a screen becomes active.
+   * @param {string} screenId
+   * @param {Function} callback
+   */
+  onEnter(screenId, callback) {
+    this._onEnter.set(screenId, callback);
+  }
+
+  /**
+   * Register a callback for when a screen is hidden.
+   * @param {string} screenId
+   * @param {Function} callback
+   */
+  onExit(screenId, callback) {
+    this._onExit.set(screenId, callback);
+  }
+
+  /**
+   * Transition to a new screen.
+   * @param {string} newScreen
+   */
+  _transition(newScreen) {
+    if (newScreen === this._currentScreen) return;
+
+    const oldScreen = this._currentScreen;
+
+    // Call exit callback for old screen
+    if (oldScreen) {
+      const exitCb = this._onExit.get(oldScreen);
+      if (exitCb) {
+        try { exitCb(); } catch (e) { console.error("Screen exit error:", e); }
+      }
+    }
+
+    // Hide all screens
+    for (const [id, el] of this._screens) {
+      el.classList.remove(ACTIVE_CLASS);
+      el.classList.add(HIDDEN_CLASS);
+    }
+
+    // Show the new screen
+    const newEl = this._screens.get(newScreen);
+    if (newEl) {
+      newEl.classList.remove(HIDDEN_CLASS);
+      // Force reflow before adding active class (for CSS transition)
+      void newEl.offsetHeight;
+      newEl.classList.add(ACTIVE_CLASS);
+    }
+
+    this._currentScreen = newScreen;
+
+    // Call enter callback for new screen
+    const enterCb = this._onEnter.get(newScreen);
+    if (enterCb) {
+      try { enterCb(); } catch (e) { console.error("Screen enter error:", e); }
+    }
+  }
+
+  /**
+   * Get the currently active screen ID.
+   * @returns {string|null}
+   */
+  getCurrentScreen() {
+    return this._currentScreen;
+  }
+
+  /**
+   * Clean up event listeners and subscriptions.
    */
   destroy() {
-    if (this._unsub) this._unsub();
+    if (this._unsubscribe) {
+      this._unsubscribe();
+      this._unsubscribe = null;
+    }
+    this._onEnter.clear();
+    this._onExit.clear();
+    this._screens.clear();
   }
 }
