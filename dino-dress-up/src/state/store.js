@@ -68,7 +68,7 @@ export class Store {
     const changedKeys = [];
 
     for (const [key, value] of Object.entries(partial)) {
-      if (this._state[key] \!== value) {
+      if (this._state[key] !== value) {
         this._state[key] = value;
         changedKeys.push(key);
       }
@@ -125,7 +125,7 @@ export class Store {
     const keyArray = Array.isArray(keys) ? keys : [keys];
 
     for (const key of keyArray) {
-      if (\!this._subscribers.has(key)) {
+      if (!this._subscribers.has(key)) {
         this._subscribers.set(key, new Set());
       }
       this._subscribers.get(key).add(callback);
@@ -157,7 +157,7 @@ export class Store {
       const subs = this._subscribers.get(key);
       if (subs) {
         for (const cb of subs) {
-          if (\!notified.has(cb)) {
+          if (!notified.has(cb)) {
             notified.add(cb);
             try {
               cb(state, changedKeys, source);
@@ -172,7 +172,7 @@ export class Store {
     const wildcardSubs = this._subscribers.get("*");
     if (wildcardSubs) {
       for (const cb of wildcardSubs) {
-        if (\!notified.has(cb)) {
+        if (!notified.has(cb)) {
           notified.add(cb);
           try {
             cb(state, changedKeys, source);
@@ -187,4 +187,5 @@ export class Store {
 
 /** The application-wide store singleton. */
 export const store = new Store();
+
 
