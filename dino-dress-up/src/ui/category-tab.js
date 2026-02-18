@@ -26,7 +26,7 @@
 
 'use strict';
 
-import { createElement } from './dom-helpers.js';
+import { createElement } from '../utils/dom-helpers.js';
 
 // ─── CategoryTab Class ────────────────────────────────────────────────────────
 
