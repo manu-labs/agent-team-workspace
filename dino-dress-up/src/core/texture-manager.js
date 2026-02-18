@@ -65,7 +65,7 @@ export class TextureManager {
     if (this.device && this._textures.has(id)) {
       return this._textures.get(id);
     }
-    if (\!this.device && this._bitmapCache.has(id)) {
+    if (!this.device && this._bitmapCache.has(id)) {
       return this._bitmapCache.get(id);
     }
 
@@ -96,7 +96,7 @@ export class TextureManager {
       scale: DPI_SCALE,
     });
 
-    if (\!this.device) {
+    if (!this.device) {
       // Canvas2D fallback: just cache the bitmap
       this._bitmapCache.set(id, bitmap);
       return bitmap;
@@ -206,3 +206,4 @@ export class TextureManager {
     return this._textures.size + this._bitmapCache.size;
   }
 }
+
