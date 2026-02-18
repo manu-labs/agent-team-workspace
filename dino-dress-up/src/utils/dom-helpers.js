@@ -74,7 +74,7 @@ export function createSVGElement(tag, attrs = {}) {
   const el = document.createElementNS(SVG_NS, tag);
 
   for (const [key, value] of Object.entries(attrs)) {
-    if (value \!= null) {
+    if (value != null) {
       el.setAttribute(key, String(value));
     }
   }
@@ -121,7 +121,7 @@ export function setAttributes(el, attrs) {
       continue;
     }
 
-    if (key === 'style' && typeof value === 'object' && value \!== null) {
+    if (key === 'style' && typeof value === 'object' && value !== null) {
       Object.assign(el.style, value);
       continue;
     }
@@ -310,9 +310,9 @@ export function insertAfter(newEl, refEl) {
  */
 export function getDataAttr(el, key, boundaryEl = null) {
   let node = el;
-  while (node && node \!== boundaryEl) {
+  while (node && node !== boundaryEl) {
     const val = node.dataset?.[key];
-    if (val \!== undefined) return val;
+    if (val !== undefined) return val;
     node = node.parentElement;
   }
   return null;
