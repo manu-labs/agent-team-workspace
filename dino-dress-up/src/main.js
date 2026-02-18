@@ -288,9 +288,31 @@ async function init() {
 // BOOT
 // ═══════════════════════════════════════════════════════════════════════════
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', init);
-} else {
-  init();
+/**
+ * Wrap init() with top-level error handling so failures surface
+ * visually instead of silently hanging on the loading screen.
+ */
+async function boot() {
+  try {
+    await init();
+  } catch (err) {
+    console.error('🦖 Dino Dress-Up — Fatal error during initialization:', err);
+
+    // Surface the error in the loading overlay so the user sees it
+    const status = document.getElementById('loading-status');
+    if (status) {
+      status.textContent = 'Oops! Something went wrong. Check the browser console for details.';
+      status.style.color = '#e84a2a';
+    }
+    const bar = document.getElementById('loading-bar');
+    if (bar) bar.style.backgroundColor = '#e84a2a';
+  }
 }
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', boot);
+} else {
+  boot();
+}
+
 
