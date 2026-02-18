@@ -38,6 +38,16 @@ export async function initGPUContext(canvas) {
   canvas.style.width = CANVAS_WIDTH + "px";
   canvas.style.height = CANVAS_HEIGHT + "px";
 
+  // ────────────────────────────────────────────────────────────────────
+  // FORCE CANVAS2D MODE
+  // WebGPU has persistent issues with hidden-canvas initialization.
+  // Canvas2D is proven to work (selection screen previews use it).
+  // Re-enable WebGPU once the game is confirmed working end-to-end.
+  // ────────────────────────────────────────────────────────────────────
+  console.log("Using Canvas2D rendering mode (WebGPU temporarily disabled)");
+  return initCanvas2DFallback(canvas);
+
+  /* --- WebGPU path (disabled) ---
   // Try WebGPU
   if (navigator.gpu) {
     try {
@@ -90,6 +100,7 @@ export async function initGPUContext(canvas) {
 
   console.warn("WebGPU not supported, falling back to Canvas2D");
   return initCanvas2DFallback(canvas);
+  --- end WebGPU path --- */
 }
 
 /**
