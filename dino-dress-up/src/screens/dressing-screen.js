@@ -1,10 +1,11 @@
 /**
  * dressing-screen.js - Dressing room screen controller
- * Part of the Dino Dress-Up screen system
  *
- * Bridges the state store ↔ renderer ↔ UI components.
- * When clothing state changes, updates the scene sprites.
- * When UI events fire, dispatches state actions.
+ * The main game view. Bridges state changes to:
+ * - Scene sprite updates (add/remove clothing sprites)
+ * - Clothing panel UI (sync applied items)
+ * - Toolbar UI (dino name, item count)
+ * - Canvas rendering with idle bounce animation
  */
 
 import { store } from "../state/store.js";
@@ -12,184 +13,152 @@ import {
   toggleClothing,
   clearAllClothing,
   randomizeOutfit,
-  setActiveCategory,
   finishDressing,
-  goToSelection,
+  goBack,
 } from "../state/actions.js";
 import { ASSET_MANIFEST } from "../assets/asset-manifest.js";
 import { DINO_PATHS } from "../assets/dino-paths.js";
 import { CLOTHING_PATHS } from "../assets/clothing-paths.js";
 import { Sprite } from "../core/sprite.js";
 import { CANVAS_WIDTH, CANVAS_HEIGHT, IDLE_BOUNCE_AMPLITUDE, IDLE_BOUNCE_SPEED } from "../utils/constants.js";
-import { ClothingPanel } from "../ui/clothing-panel.js";
-import { Toolbar } from "../ui/toolbar.js";
 
 export class DressingScreen {
   /**
-   * @param {HTMLElement} containerEl
-   * @param {Object} deps - Dependencies injected from main.js
-   * @param {import("../core/renderer.js").Renderer} deps.renderer
-   * @param {import("../core/scene.js").Scene} deps.scene
-   * @param {import("../core/texture-manager.js").TextureManager} deps.textureManager
+   * @param {Object} options
+   * @param {HTMLElement} options.container
+   * @param {import("../core/scene.js").Scene} options.scene
+   * @param {import("../core/texture-manager.js").TextureManager} options.textureManager
+   * @param {import("../core/renderer.js").Renderer} options.renderer
    */
-  constructor(containerEl, deps) {
-    this._container = containerEl;
-    this._renderer = deps.renderer;
-    this._scene = deps.scene;
-    this._textureManager = deps.textureManager;
+  constructor({ container, scene, textureManager, renderer }) {
+    this._container = container;
+    this._scene = scene;
+    this._textureManager = textureManager;
+    this._renderer = renderer;
 
-    /** @type {Sprite|null} */
     this._dinoSprite = null;
-
-    /** @type {Map<string, Sprite>} itemId → Sprite */
     this._clothingSprites = new Map();
-
-    /** @type {ClothingPanel|null} */
-    this._clothingPanel = null;
-
-    /** @type {Toolbar|null} */
-    this._toolbar = null;
-
-    /** @type {Function[]} */
     this._unsubscribers = [];
+    this._currentDinoId = null;
+    this._dinoBaseY = CANVAS_HEIGHT / 2 + 20;
   }
 
-  /**
-   * Initialize the dressing screen.
-   * Sets up UI components and subscribes to state changes.
-   */
-  async init() {
-    // Set up clothing panel
-    const sidebarEl = this._container.querySelector("#sidebar");
-    if (sidebarEl) {
-      // Build items array from manifest for the panel
-      const items = Object.entries(ASSET_MANIFEST.clothing).map(
-        ([id, meta]) => ({
-          id,
-          name: meta.name,
-          category: meta.category,
-          order: meta.zIndex,
-        })
-      );
-
-      this._clothingPanel = new ClothingPanel(sidebarEl, {
-        categories: ASSET_MANIFEST.categories,
-        items,
-      }, {
-        onItemClick: (itemId) => toggleClothing(itemId),
-        onCategoryChange: (catId) => setActiveCategory(catId),
-        onClearAll: () => clearAllClothing(),
-      });
-    }
-
-    // Set up toolbar
-    const toolbarEl = this._container.querySelector("#toolbar");
-    if (toolbarEl) {
-      this._toolbar = new Toolbar(toolbarEl, {
-        onBack: () => this._handleBack(),
-        onClearAll: () => clearAllClothing(),
-        onRandomize: () => randomizeOutfit(),
-        onDone: () => finishDressing(),
-      });
-    }
-
-    // Subscribe to state changes
+  /** Initialize subscriptions and UI wiring. */
+  init() {
     this._unsubscribers.push(
-      store.subscribe("selectedDino", (state) => this._onDinoChanged(state)),
-      store.subscribe("appliedClothing", (state) => this._onClothingChanged(state)),
-      store.subscribe("activeCategory", (state) => {
-        if (this._clothingPanel) {
-          this._clothingPanel.setCategory(state.activeCategory);
-        }
+      store.subscribe("selectedDino", (state) => {
+        this._loadDino(state.selectedDino);
       })
     );
 
-    // Set up idle bounce animation
-    this._renderer.onFrame = (timestamp) => {
-      if (this._dinoSprite) {
-        const bounce = Math.sin(timestamp * IDLE_BOUNCE_SPEED) * IDLE_BOUNCE_AMPLITUDE;
-        this._dinoSprite.setPosition(
-          CANVAS_WIDTH / 2,
-          CANVAS_HEIGHT / 2 + bounce
-        );
-        this._scene.markDirty();
+    this._unsubscribers.push(
+      store.subscribe("appliedClothing", (state) => {
+        this._syncClothingSprites(state.appliedClothing);
+      })
+    );
 
-        // Also bounce clothing sprites to match
-        this._clothingSprites.forEach((sprite) => {
-          const baseY = sprite._baseY || sprite.y;
-          sprite.setPosition(sprite.x, baseY + bounce);
-        });
+    this._wireToolbar();
+  }
+
+  _wireToolbar() {
+    const btnBack = this._container.querySelector("[data-action=back]");
+    const btnClear = this._container.querySelector("[data-action=clear]");
+    const btnRandom = this._container.querySelector("[data-action=randomize]");
+    const btnDone = this._container.querySelector("[data-action=done]");
+
+    if (btnBack) btnBack.addEventListener("click", () => {
+      const state = store.getState();
+      if (state.appliedClothing.length > 0) {
+        if (confirm("You have items applied. Go back and lose your outfit?")) {
+          goBack();
+        }
+      } else {
+        goBack();
       }
-    };
+    });
+
+    if (btnClear) btnClear.addEventListener("click", clearAllClothing);
+    if (btnRandom) btnRandom.addEventListener("click", randomizeOutfit);
+    if (btnDone) btnDone.addEventListener("click", finishDressing);
   }
 
   /**
-   * Called when the selected dinosaur changes.
-   * Loads the dino texture and creates its sprite.
+   * Load a dinosaur into the scene.
+   * @param {string|null} dinoId
    */
-  async _onDinoChanged(state) {
-    const dinoId = state.selectedDino;
-    if (\!dinoId) return;
+  async _loadDino(dinoId) {
+    if (\!dinoId || dinoId === this._currentDinoId) return;
+
+    // Remove old dino sprite
+    if (this._dinoSprite) {
+      this._scene.removeSprite(this._dinoSprite);
+      this._renderer.releaseSpriteResources(this._dinoSprite.id);
+      this._dinoSprite = null;
+    }
+
+    this._clearAllClothingSprites();
 
     const dinoData = DINO_PATHS[dinoId];
     if (\!dinoData) return;
 
-    // Clear existing sprites
-    this._clearScene();
-
     // Load dino texture
-    const textureId = `dino-${dinoId}`;
+    const textureId = "dino-" + dinoId;
     await this._textureManager.loadSVG(textureId, {
       paths: dinoData.paths,
       width: dinoData.width,
       height: dinoData.height,
     });
 
-    // Create dino sprite centered on canvas
+    // Scale dino to fit canvas nicely
     const scale = Math.min(
-      (CANVAS_WIDTH * 0.6) / dinoData.width,
+      (CANVAS_WIDTH * 0.7) / dinoData.width,
       (CANVAS_HEIGHT * 0.7) / dinoData.height
     );
 
     this._dinoSprite = new Sprite({
       textureId,
       x: CANVAS_WIDTH / 2,
-      y: CANVAS_HEIGHT / 2,
+      y: this._dinoBaseY,
       width: dinoData.width * scale,
       height: dinoData.height * scale,
       zIndex: 5,
-      label: `dino-${dinoId}`,
+      label: "dino-" + dinoId,
+      anchorX: 0.5,
+      anchorY: 0.5,
     });
 
     this._scene.add(this._dinoSprite);
+    this._currentDinoId = dinoId;
+
+    // Set up idle bounce animation
+    this._renderer.onFrame = (timestamp) => {
+      if (this._dinoSprite) {
+        const bounce = Math.sin(timestamp * IDLE_BOUNCE_SPEED) * IDLE_BOUNCE_AMPLITUDE;
+        const newY = this._dinoBaseY + bounce;
+        this._dinoSprite.setPosition(this._dinoSprite.x, newY);
+
+        // Also bounce clothing sprites
+        for (const [itemId, sprite] of this._clothingSprites) {
+          sprite.setPosition(sprite.x, sprite._baseY + bounce);
+        }
+
+        this._scene.markDirty();
+      }
+    };
+
     this._scene.markDirty();
-
-    // Update toolbar
-    if (this._toolbar) {
-      this._toolbar.setDinoName(dinoData.name);
-      this._toolbar.setAppliedCount(0);
-    }
-
-    // Re-apply any existing clothing
-    if (state.appliedClothing.length > 0) {
-      this._onClothingChanged(state);
-    }
   }
 
   /**
-   * Called when applied clothing changes.
-   * Syncs clothing sprites with the current state.
+   * Sync clothing sprites with applied clothing state.
+   * @param {string[]} appliedClothing
    */
-  async _onClothingChanged(state) {
-    const applied = new Set(state.appliedClothing);
-    const dinoId = state.selectedDino;
-    const dinoData = dinoId ? DINO_PATHS[dinoId] : null;
+  async _syncClothingSprites(appliedClothing) {
+    const appliedSet = new Set(appliedClothing);
 
-    if (\!dinoData || \!this._dinoSprite) return;
-
-    // Remove sprites for items no longer applied
+    // Remove sprites that are no longer applied
     for (const [itemId, sprite] of this._clothingSprites) {
-      if (\!applied.has(itemId)) {
+      if (\!appliedSet.has(itemId)) {
         this._scene.removeSprite(sprite);
         this._renderer.releaseSpriteResources(sprite.id);
         this._clothingSprites.delete(itemId);
@@ -197,105 +166,91 @@ export class DressingScreen {
     }
 
     // Add sprites for newly applied items
-    for (const itemId of applied) {
-      if (this._clothingSprites.has(itemId)) continue;
-
-      const itemMeta = ASSET_MANIFEST.clothing[itemId];
-      const itemPaths = CLOTHING_PATHS[itemId];
-      if (\!itemMeta || \!itemPaths) continue;
-
-      // Load texture
-      const textureId = `clothing-${itemId}`;
-      if (\!this._textureManager.has(textureId)) {
-        await this._textureManager.loadSVG(textureId, {
-          paths: itemPaths.paths,
-          width: itemPaths.width,
-          height: itemPaths.height,
-        });
+    for (const itemId of appliedClothing) {
+      if (\!this._clothingSprites.has(itemId)) {
+        await this._addClothingSprite(itemId);
       }
-
-      // Calculate position based on attachment slot
-      const slot = dinoData.slots[itemMeta.slot];
-      if (\!slot) continue;
-
-      const dinoScale = this._dinoSprite.width / dinoData.width;
-      const itemScale = (itemMeta.scale || 1) * dinoScale;
-      const offset = itemMeta.offset || { x: 0, y: 0 };
-
-      // Position relative to the dino sprite
-      const slotX = this._dinoSprite.x - this._dinoSprite.width * this._dinoSprite.anchorX + slot.x * dinoScale;
-      const slotY = this._dinoSprite.y - this._dinoSprite.height * this._dinoSprite.anchorY + slot.y * dinoScale;
-
-      const sprite = new Sprite({
-        textureId,
-        x: slotX + offset.x * dinoScale,
-        y: slotY + offset.y * dinoScale,
-        width: itemPaths.width * itemScale,
-        height: itemPaths.height * itemScale,
-        zIndex: itemMeta.zIndex || 20,
-        label: `clothing-${itemId}`,
-        anchorX: 0.5,
-        anchorY: 0.5,
-      });
-
-      // Store base Y for bounce animation sync
-      sprite._baseY = sprite.y;
-
-      this._scene.add(sprite);
-      this._clothingSprites.set(itemId, sprite);
     }
 
     this._scene.markDirty();
-
-    // Update UI
-    if (this._clothingPanel) {
-      this._clothingPanel.setAppliedItems(state.appliedClothing);
-    }
-    if (this._toolbar) {
-      this._toolbar.setAppliedCount(state.appliedClothing.length);
-    }
   }
 
   /**
-   * Handle back button — confirm if clothing is applied.
+   * Create and add a clothing sprite to the scene.
+   * @param {string} itemId
    */
-  _handleBack() {
-    const state = store.getState();
-    if (state.appliedClothing.length > 0) {
-      const confirmed = window.confirm(
-        "Going back will remove all clothing. Are you sure?"
-      );
-      if (\!confirmed) return;
-    }
-    goToSelection();
+  async _addClothingSprite(itemId) {
+    const meta = ASSET_MANIFEST.clothing[itemId];
+    const pathData = CLOTHING_PATHS[itemId];
+    if (\!meta || \!pathData || \!this._dinoSprite || \!this._currentDinoId) return;
+
+    const dinoData = DINO_PATHS[this._currentDinoId];
+    if (\!dinoData) return;
+
+    // Load clothing texture
+    const textureId = "clothing-" + itemId;
+    await this._textureManager.loadSVG(textureId, {
+      paths: pathData.paths,
+      width: pathData.width,
+      height: pathData.height,
+    });
+
+    // Calculate position based on attachment slot + offset
+    const slot = dinoData.slots[meta.slot];
+    if (\!slot) return;
+
+    const dinoScale = this._dinoSprite.width / dinoData.width;
+    const itemScale = (meta.scale || 1) * dinoScale;
+
+    const dinoLeft = this._dinoSprite.x - this._dinoSprite.width * this._dinoSprite.anchorX;
+    const dinoTop = this._dinoSprite.y - this._dinoSprite.height * this._dinoSprite.anchorY;
+
+    const itemX = dinoLeft + slot.x * dinoScale + (meta.offset ? meta.offset.x : 0) * dinoScale;
+    const itemY = dinoTop + slot.y * dinoScale + (meta.offset ? meta.offset.y : 0) * dinoScale;
+
+    const sprite = new Sprite({
+      textureId,
+      x: itemX + (pathData.width * itemScale) / 2,
+      y: itemY + (pathData.height * itemScale) / 2,
+      width: pathData.width * itemScale,
+      height: pathData.height * itemScale,
+      zIndex: meta.zIndex || 20,
+      label: "clothing-" + itemId,
+      anchorX: 0.5,
+      anchorY: 0.5,
+    });
+
+    // Store base Y for bounce animation
+    sprite._baseY = sprite.y;
+
+    this._scene.add(sprite);
+    this._clothingSprites.set(itemId, sprite);
   }
 
-  /**
-   * Clear all sprites from the scene.
-   */
-  _clearScene() {
+  _clearAllClothingSprites() {
+    for (const [itemId, sprite] of this._clothingSprites) {
+      this._scene.removeSprite(sprite);
+      this._renderer.releaseSpriteResources(sprite.id);
+    }
+    this._clothingSprites.clear();
+  }
+
+  onEnter() {
+    this._renderer.start();
+    this._scene.markDirty();
+  }
+
+  onExit() {
+    // Keep renderer running for finished screen
+  }
+
+  destroy() {
+    for (const unsub of this._unsubscribers) unsub();
+    this._unsubscribers = [];
+    this._clearAllClothingSprites();
     if (this._dinoSprite) {
       this._scene.removeSprite(this._dinoSprite);
       this._dinoSprite = null;
     }
-    for (const [, sprite] of this._clothingSprites) {
-      this._scene.removeSprite(sprite);
-    }
-    this._clothingSprites.clear();
-    this._scene.markDirty();
-  }
-
-  /**
-   * Clean up subscriptions and UI components.
-   */
-  destroy() {
-    this._unsubscribers.forEach((unsub) => unsub());
-    this._unsubscribers = [];
-
-    if (this._clothingPanel) this._clothingPanel.destroy();
-    if (this._toolbar) this._toolbar.destroy();
-
-    this._clearScene();
-    this._renderer.onFrame = null;
   }
 }
