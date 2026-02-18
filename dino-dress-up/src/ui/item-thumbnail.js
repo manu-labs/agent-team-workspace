@@ -251,15 +251,16 @@ export class ItemThumbnail {
    * @returns {string} CSS colour value.
    */
   _getCategoryColour() {
+    // Category IDs match ASSET_MANIFEST and constants.js CATEGORIES
     const categoryColours = {
-      hats:        '#9c27b0',   // purple
-      shirts:      '#2196f3',   // blue
-      pants:       '#4caf50',   // green
-      shoes:       '#ff9800',   // orange
-      accessories: '#e91e63',   // pink
-      glasses:     '#00bcd4',   // cyan
-      capes:       '#f44336',   // red
-      bags:        '#ffeb3b',   // yellow
+      hats:           '#9c27b0',   // purple
+      eyewear:        '#00bcd4',   // cyan
+      neckwear:       '#2196f3',   // blue
+      tops:           '#4caf50',   // green
+      capes:          '#f44336',   // red
+      footwear:       '#ff9800',   // orange
+      accessories:    '#e91e63',   // pink
+      'tail-flair':   '#ffeb3b',   // yellow
     };
     const category = (this._meta.category || '').toLowerCase();
     return categoryColours[category] || '#ff9800';
