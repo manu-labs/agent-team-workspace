@@ -45,7 +45,7 @@ export async function initGPUContext(canvas) {
         powerPreference: "low-power",
       });
 
-      if (\!adapter) {
+      if (!adapter) {
         console.warn("WebGPU adapter not found, falling back to Canvas2D");
         return initCanvas2DFallback(canvas);
       }
@@ -57,7 +57,7 @@ export async function initGPUContext(canvas) {
       // Handle device loss
       device.lost.then((info) => {
         console.error("WebGPU device lost:", info.message);
-        if (info.reason \!== "destroyed") {
+        if (info.reason !== "destroyed") {
           // Could attempt re-initialization here
           console.warn("Attempting to recover...");
         }
@@ -116,5 +116,6 @@ function initCanvas2DFallback(canvas) {
  * @returns {boolean}
  */
 export function isWebGPUAvailable() {
-  return typeof navigator \!== "undefined" && \!\!navigator.gpu;
+  return typeof navigator !== "undefined" && !!navigator.gpu;
 }
+
