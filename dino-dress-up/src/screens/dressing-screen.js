@@ -58,7 +58,7 @@ export class DressingScreen {
    * @param {string|null} dinoId
    */
   async _loadDino(dinoId) {
-    if (\!dinoId || dinoId === this._currentDinoId) return;
+    if (!dinoId || dinoId === this._currentDinoId) return;
 
     // Remove old dino sprite
     if (this._dinoSprite) {
@@ -70,7 +70,7 @@ export class DressingScreen {
     this._clearAllClothingSprites();
 
     const dinoData = DINO_PATHS[dinoId];
-    if (\!dinoData) return;
+    if (!dinoData) return;
 
     // Load dino texture (may already be cached from preload)
     const textureId = 'dino-' + dinoId;
@@ -136,7 +136,7 @@ export class DressingScreen {
 
     // Remove sprites that are no longer applied
     for (const [itemId, sprite] of this._clothingSprites) {
-      if (\!appliedSet.has(itemId)) {
+      if (!appliedSet.has(itemId)) {
         this._scene.removeSprite(sprite);
         this._renderer.releaseSpriteResources(sprite.id);
         // Also remove slot2 sprite if present
@@ -150,7 +150,7 @@ export class DressingScreen {
 
     // Add sprites for newly applied items
     for (const itemId of appliedClothing) {
-      if (\!this._clothingSprites.has(itemId)) {
+      if (!this._clothingSprites.has(itemId)) {
         await this._addClothingSprite(itemId);
       }
     }
@@ -165,10 +165,10 @@ export class DressingScreen {
   async _addClothingSprite(itemId) {
     const meta = ASSET_MANIFEST.clothing[itemId];
     const pathData = CLOTHING_PATHS[itemId];
-    if (\!meta || \!pathData || \!this._dinoSprite || \!this._currentDinoId) return;
+    if (!meta || !pathData || !this._dinoSprite || !this._currentDinoId) return;
 
     const dinoData = DINO_PATHS[this._currentDinoId];
-    if (\!dinoData) return;
+    if (!dinoData) return;
 
     // Load clothing texture (may already be cached from preload)
     const textureId = 'clothing-' + itemId;
@@ -180,7 +180,7 @@ export class DressingScreen {
 
     // Calculate position based on attachment slot + offset
     const slot = dinoData.slots[meta.slot];
-    if (\!slot) {
+    if (!slot) {
       console.warn('DressingScreen: No slot "' + meta.slot + '" on dino "' + this._currentDinoId + '" for item "' + itemId + '"');
       return;
     }
@@ -275,4 +275,5 @@ export class DressingScreen {
     this._renderer.onFrame = null;
   }
 }
+
 
