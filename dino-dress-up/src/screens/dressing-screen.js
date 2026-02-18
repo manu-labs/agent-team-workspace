@@ -101,9 +101,6 @@ export class DressingScreen {
     this._scene.add(this._dinoSprite);
     this._currentDinoId = dinoId;
 
-    // Store the dino scale for clothing positioning
-    this._dinoScale = scale;
-
     // Set up idle bounce animation
     this._renderer.onFrame = (timestamp) => {
       if (this._dinoSprite) {
@@ -114,6 +111,13 @@ export class DressingScreen {
         // Also bounce clothing sprites in sync
         for (const [itemId, sprite] of this._clothingSprites) {
           sprite.setPosition(sprite.x, sprite._baseY + bounce);
+          // Bounce slot2 sprite too
+          if (sprite._slot2Sprite) {
+            sprite._slot2Sprite.setPosition(
+              sprite._slot2Sprite.x,
+              sprite._slot2Sprite._baseY + bounce
+            );
+          }
         }
 
         this._scene.markDirty();
@@ -135,6 +139,11 @@ export class DressingScreen {
       if (\!appliedSet.has(itemId)) {
         this._scene.removeSprite(sprite);
         this._renderer.releaseSpriteResources(sprite.id);
+        // Also remove slot2 sprite if present
+        if (sprite._slot2Sprite) {
+          this._scene.removeSprite(sprite._slot2Sprite);
+          this._renderer.releaseSpriteResources(sprite._slot2Sprite.id);
+        }
         this._clothingSprites.delete(itemId);
       }
     }
