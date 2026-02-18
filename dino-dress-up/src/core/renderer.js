@@ -447,6 +447,47 @@ export class Renderer {
   }
 
   /**
+   * Re-configure the WebGPU canvas context.
+   * Must be called when the canvas becomes visible after being hidden
+   * (display: none), because WebGPU's getCurrentTexture() returns a
+   * degenerate/zero-size texture on a hidden canvas.
+   */
+  reconfigure() {
+    if (this.mode === "webgpu") {
+      const { device, gpuContext, format, canvas } = this.gpuContext;
+
+      // Re-set canvas physical dimensions (may have been zeroed while hidden)
+      canvas.width = PHYSICAL_WIDTH;
+      canvas.height = PHYSICAL_HEIGHT;
+
+      // Re-configure the WebGPU context so getCurrentTexture() works
+      gpuContext.configure({
+        device,
+        format,
+        alphaMode: "premultiplied",
+      });
+
+      console.log("[DINO-DEBUG] WebGPU context reconfigured (canvas now visible)");
+    } else if (this.mode === "canvas2d") {
+      const { ctx2d, canvas } = this.gpuContext;
+
+      // Re-set canvas dimensions
+      canvas.width = PHYSICAL_WIDTH;
+      canvas.height = PHYSICAL_HEIGHT;
+
+      // Re-apply DPI scale (resetting canvas dimensions clears the transform)
+      ctx2d.scale(DPI_SCALE, DPI_SCALE);
+
+      console.log("[DINO-DEBUG] Canvas2D context reconfigured (canvas now visible)");
+    }
+
+    // Force a dirty render
+    if (this.scene) {
+      this.scene.markDirty();
+    }
+  }
+
+  /**
    * Force a re-render on the next frame.
    */
   requestRender() {
