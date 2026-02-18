@@ -2,41 +2,52 @@
  * store.js - Reactive state store with pub/sub pattern
  * Part of the Dino Dress-Up state management system
  *
- * A simple, predictable state container inspired by Redux/Zustand.
- * State is updated via dispatched actions and subscribers are notified
- * of changes. Supports selective subscriptions by state key.
+ * A minimal, synchronous reactive store inspired by Redux/Zustand.
+ * Components subscribe to state changes and are notified whenever
+ * the state tree is updated via setState().
+ *
+ * Design decisions:
+ * - Synchronous dispatches (no middleware needed for this app)
+ * - Shallow-merge updates (we trade purity for simplicity)
+ * - Wildcard "*" subscriptions for global listeners
+ * - Per-key subscriptions for targeted re-renders
  */
 
 import { createInitialState } from "./initial-state.js";
 
-class Store {
-  constructor() {
-    /** @type {import("./initial-state.js").AppState} */
-    this._state = createInitialState();
+export class Store {
+  /**
+   * @param {Object} [initialState] - Override initial state (for testing)
+   */
+  constructor(initialState) {
+    this._state = initialState || createInitialState();
 
-    /** @type {Map<string, Set<Function>>} - Key-specific subscribers */
+    /**
+     * Subscribers map: key -> Set of callbacks.
+     * Special key "*" receives ALL state changes.
+     * @type {Map<string, Set<Function>>}
+     */
     this._subscribers = new Map();
 
-    /** @type {Set<Function>} - Global subscribers (notified on any change) */
-    this._globalSubscribers = new Set();
+    /** @type {boolean} Whether we are inside a batch update */
+    this._batching = false;
 
-    /** @type {boolean} - Batching flag to coalesce notifications */
-    this._isBatching = false;
-
-    /** @type {Set<string>} - Keys changed during a batch */
-    this._pendingKeys = new Set();
+    /** @type {Set<string>} Keys changed during current batch */
+    this._batchedKeys = new Set();
   }
 
+  // -- Read --
+
   /**
-   * Get the current state (read-only snapshot).
-   * @returns {import("./initial-state.js").AppState}
+   * Get the entire state tree (read-only reference).
+   * @returns {Object}
    */
   getState() {
     return this._state;
   }
 
   /**
-   * Get a specific value from state.
+   * Get a single state value by key.
    * @param {string} key
    * @returns {*}
    */
@@ -44,19 +55,19 @@ class Store {
     return this._state[key];
   }
 
+  // -- Write --
+
   /**
-   * Update one or more state properties and notify subscribers.
+   * Update the state by shallow-merging a partial state object.
+   * Notifies subscribers for each changed key.
    *
-   * @param {Partial<import("./initial-state.js").AppState>} updates
-   *   An object with the keys to update and their new values.
-   *
-   * @example
-   *   store.set({ selectedDino: "trex", currentScreen: "dressing" });
+   * @param {Object} partial - Partial state to merge
+   * @param {string} [source] - Optional label for debugging
    */
-  set(updates) {
+  setState(partial, source) {
     const changedKeys = [];
 
-    for (const [key, value] of Object.entries(updates)) {
+    for (const [key, value] of Object.entries(partial)) {
       if (this._state[key] \!== value) {
         this._state[key] = value;
         changedKeys.push(key);
@@ -65,53 +76,50 @@ class Store {
 
     if (changedKeys.length === 0) return;
 
-    if (this._isBatching) {
-      changedKeys.forEach((k) => this._pendingKeys.add(k));
+    if (this._batching) {
+      changedKeys.forEach((k) => this._batchedKeys.add(k));
     } else {
-      this._notify(changedKeys);
+      this._notify(changedKeys, source);
     }
   }
 
   /**
-   * Batch multiple state updates into a single notification cycle.
-   * Subscribers are only notified once after the callback completes.
+   * Batch multiple state updates into a single notification round.
    *
-   * @param {Function} callback - A function that calls store.set() one or more times.
-   *
-   * @example
-   *   store.batch(() => {
-   *     store.set({ selectedDino: "trex" });
-   *     store.set({ currentScreen: "dressing" });
-   *     store.set({ activeCategory: "hats" });
-   *   });
-   *   // Subscribers notified once with all 3 changes
+   * @param {Function} fn - Callback that performs multiple setState calls
    */
-  batch(callback) {
-    this._isBatching = true;
+  batch(fn) {
+    this._batching = true;
+    this._batchedKeys.clear();
+
     try {
-      callback();
+      fn();
     } finally {
-      this._isBatching = false;
-      if (this._pendingKeys.size > 0) {
-        const keys = [...this._pendingKeys];
-        this._pendingKeys.clear();
-        this._notify(keys);
+      this._batching = false;
+      if (this._batchedKeys.size > 0) {
+        this._notify([...this._batchedKeys], "batch");
+        this._batchedKeys.clear();
       }
     }
   }
 
   /**
-   * Subscribe to changes on specific state keys.
+   * Reset the store to the initial state.
+   */
+  reset() {
+    const allKeys = Object.keys(this._state);
+    this._state = createInitialState();
+    this._notify(allKeys, "reset");
+  }
+
+  // -- Subscribe --
+
+  /**
+   * Subscribe to state changes.
    *
-   * @param {string|string[]} keys - State key(s) to watch.
-   * @param {Function} callback - Called with (newState, changedKeys) when any watched key changes.
-   * @returns {Function} Unsubscribe function.
-   *
-   * @example
-   *   const unsub = store.subscribe("appliedClothing", (state) => {
-   *     console.log("Clothing changed:", state.appliedClothing);
-   *   });
-   *   // Later: unsub();
+   * @param {string|string[]} keys - State key(s) to watch, or "*" for all.
+   * @param {Function} callback - Called with (newState, changedKeys, source).
+   * @returns {Function} Unsubscribe function
    */
   subscribe(keys, callback) {
     const keyArray = Array.isArray(keys) ? keys : [keys];
@@ -123,7 +131,6 @@ class Store {
       this._subscribers.get(key).add(callback);
     }
 
-    // Return unsubscribe function
     return () => {
       for (const key of keyArray) {
         const subs = this._subscribers.get(key);
@@ -135,76 +142,48 @@ class Store {
     };
   }
 
-  /**
-   * Subscribe to ALL state changes (global listener).
-   *
-   * @param {Function} callback - Called with (newState, changedKeys) on any change.
-   * @returns {Function} Unsubscribe function.
-   */
-  subscribeAll(callback) {
-    this._globalSubscribers.add(callback);
-    return () => this._globalSubscribers.delete(callback);
-  }
+  // -- Private --
 
   /**
-   * Notify subscribers about changed keys.
+   * Notify subscribers about state changes.
    * @param {string[]} changedKeys
+   * @param {string} [source]
    */
-  _notify(changedKeys) {
+  _notify(changedKeys, source) {
+    const state = this._state;
     const notified = new Set();
 
-    // Notify key-specific subscribers
     for (const key of changedKeys) {
       const subs = this._subscribers.get(key);
       if (subs) {
-        for (const callback of subs) {
-          if (\!notified.has(callback)) {
-            notified.add(callback);
+        for (const cb of subs) {
+          if (\!notified.has(cb)) {
+            notified.add(cb);
             try {
-              callback(this._state, changedKeys);
+              cb(state, changedKeys, source);
             } catch (err) {
-              console.error(`Store subscriber error (key: ${key}):`, err);
+              console.error("Store subscriber error (key: " + key + "):", err);
             }
           }
         }
       }
     }
 
-    // Notify global subscribers
-    for (const callback of this._globalSubscribers) {
-      if (\!notified.has(callback)) {
-        try {
-          callback(this._state, changedKeys);
-        } catch (err) {
-          console.error("Store global subscriber error:", err);
+    const wildcardSubs = this._subscribers.get("*");
+    if (wildcardSubs) {
+      for (const cb of wildcardSubs) {
+        if (\!notified.has(cb)) {
+          notified.add(cb);
+          try {
+            cb(state, changedKeys, source);
+          } catch (err) {
+            console.error("Store subscriber error (wildcard):", err);
+          }
         }
       }
     }
   }
-
-  /**
-   * Reset the store to its initial state.
-   * Notifies all subscribers.
-   */
-  reset() {
-    this._state = createInitialState();
-    const allKeys = Object.keys(this._state);
-    this._notify(allKeys);
-  }
-
-  /**
-   * Get subscriber count (useful for debugging).
-   * @returns {{ keySubscribers: number, globalSubscribers: number }}
-   */
-  get subscriberCount() {
-    let keyCount = 0;
-    this._subscribers.forEach((subs) => (keyCount += subs.size));
-    return {
-      keySubscribers: keyCount,
-      globalSubscribers: this._globalSubscribers.size,
-    };
-  }
 }
 
-// Singleton store instance
+/** The application-wide store singleton. */
 export const store = new Store();
