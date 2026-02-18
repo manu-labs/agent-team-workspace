@@ -32,7 +32,7 @@
 
 'use strict';
 
-import { createElement, createSVGElement, setAttributes } from './dom-helpers.js';
+import { createElement, createSVGElement, setAttributes } from '../utils/dom-helpers.js';
 import { bounceIn } from './animations.js';
 
 // ─── ItemThumbnail Class ──────────────────────────────────────────────────────
