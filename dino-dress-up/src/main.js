@@ -356,3 +356,5 @@ if (document.readyState === 'loading') {
 
 
 
+
+// Dino Dress-Up v1.0 — All systems go
