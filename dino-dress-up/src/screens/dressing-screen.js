@@ -101,6 +101,20 @@ export class DressingScreen {
     this._scene.add(this._dinoSprite);
     this._currentDinoId = dinoId;
 
+    console.log('[DINO-DEBUG] Dino loaded:', dinoId, 'sprite:', {
+      id: this._dinoSprite.id,
+      textureId: this._dinoSprite.textureId,
+      x: this._dinoSprite.x,
+      y: this._dinoSprite.y,
+      width: this._dinoSprite.width,
+      height: this._dinoSprite.height,
+      visible: this._dinoSprite.visible,
+      zIndex: this._dinoSprite.zIndex,
+    });
+    console.log('[DINO-DEBUG] Scene sprites:', this._scene.size);
+    console.log('[DINO-DEBUG] TextureManager has bitmap:', this._textureManager.has(textureId), 'bitmap:', !!this._textureManager.getBitmap(textureId));
+    console.log('[DINO-DEBUG] Renderer mode:', this._renderer.mode, 'running:', this._renderer._running);
+
     // Set up idle bounce animation
     this._renderer.onFrame = (timestamp) => {
       if (this._dinoSprite) {
@@ -275,5 +289,6 @@ export class DressingScreen {
     this._renderer.onFrame = null;
   }
 }
+
 
 
