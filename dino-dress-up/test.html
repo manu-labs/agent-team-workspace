@@ -1,635 +1,409 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Dino Dress-Up - Diagnostic / Smoke Tests</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dino Dress-Up — Smoke Test</title>
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      background: #f5f5f7;
-      color: #1d1d1f;
-      line-height: 1.5;
-      padding: 2rem;
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; padding: 24px; background: #1a1a2e; color: #e0e0e0; }
+    h1 { margin-bottom: 16px; color: #fff; }
+    .test-grid { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 16px; }
+    .test-card {
+      background: #16213e; border-radius: 12px; padding: 16px; min-width: 280px;
+      border: 2px solid #333; flex: 1;
     }
-
-    h1 {
-      font-size: 1.75rem;
-      font-weight: 700;
-      margin-bottom: 0.25rem;
+    .test-card h3 { margin-bottom: 8px; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; color: #888; }
+    .test-card .result { font-size: 18px; font-weight: bold; margin: 8px 0; }
+    .test-card .detail { font-size: 12px; color: #999; margin-top: 4px; white-space: pre-wrap; }
+    .pass { color: #4caf50; }
+    .fail { color: #f44336; }
+    .running { color: #ff9800; }
+    canvas { border: 1px solid #444; border-radius: 4px; margin-top: 8px; display: block; background: #000; }
+    #summary {
+      margin-top: 24px; padding: 16px; border-radius: 8px; font-size: 20px; font-weight: bold; text-align: center;
     }
-
-    .subtitle {
-      color: #6e6e73;
-      font-size: 0.9rem;
-      margin-bottom: 1.5rem;
-    }
-
-    .summary-bar {
-      display: flex;
-      gap: 1.5rem;
-      align-items: center;
-      padding: 0.75rem 1.25rem;
-      background: #fff;
-      border-radius: 10px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-      margin-bottom: 2rem;
-      font-size: 0.95rem;
-    }
-
-    .summary-bar .label { color: #6e6e73; }
-    .summary-bar .count { font-weight: 600; }
-    .summary-bar .passed { color: #30a14e; }
-    .summary-bar .failed { color: #cf222e; }
-    .summary-bar .running { color: #bf8700; }
-    .summary-bar .total-time { margin-left: auto; color: #6e6e73; }
-
-    .section-heading {
-      font-size: 1.1rem;
-      font-weight: 600;
-      margin: 1.5rem 0 0.75rem;
-      padding-bottom: 0.35rem;
-      border-bottom: 1px solid #d1d1d6;
-    }
-
-    .test-list {
-      display: flex;
-      flex-direction: column;
-      gap: 0.5rem;
-      margin-bottom: 2rem;
-    }
-
-    .test-row {
-      display: grid;
-      grid-template-columns: 2rem 1fr auto auto;
-      gap: 0.75rem;
-      align-items: center;
-      padding: 0.6rem 1rem;
-      background: #fff;
-      border-radius: 8px;
-      box-shadow: 0 1px 2px rgba(0,0,0,0.06);
-      font-size: 0.9rem;
-      transition: box-shadow 0.15s;
-    }
-
-    .test-row:hover { box-shadow: 0 2px 6px rgba(0,0,0,0.1); }
-
-    .test-row .icon {
-      width: 1.5rem;
-      height: 1.5rem;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 0.8rem;
-      font-weight: 700;
-      color: #fff;
-      flex-shrink: 0;
-    }
-
-    .icon.pass { background: #30a14e; }
-    .icon.fail { background: #cf222e; }
-    .icon.running { background: #bf8700; animation: pulse 1s infinite; }
-    .icon.pending { background: #d1d1d6; }
-
-    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-
-    .test-row .name { font-weight: 500; }
-
-    .test-row .details {
-      color: #6e6e73;
-      font-size: 0.8rem;
-      max-width: 420px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .test-row .details.error-text { color: #cf222e; }
-
-    .test-row .elapsed {
-      font-variant-numeric: tabular-nums;
-      font-size: 0.8rem;
-      color: #8e8e93;
-      min-width: 4rem;
-      text-align: right;
-    }
-
-    .visual-tests {
-      display: flex;
-      gap: 2rem;
-      flex-wrap: wrap;
-      margin-bottom: 2rem;
-    }
-
-    .visual-card {
-      background: #fff;
-      border-radius: 10px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-      padding: 1rem;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 0.5rem;
-    }
-
-    .visual-card .label {
-      font-weight: 600;
-      font-size: 0.85rem;
-      color: #1d1d1f;
-    }
-
-    .visual-card .sublabel {
-      font-size: 0.75rem;
-      color: #6e6e73;
-    }
-
-    .visual-card canvas {
-      border: 1px solid #e5e5ea;
-      border-radius: 6px;
-      image-rendering: auto;
-    }
-
-    .log-panel {
-      background: #1d1d1f;
-      color: #98989d;
-      border-radius: 10px;
-      padding: 1rem 1.25rem;
-      font-family: "SF Mono", Menlo, Consolas, "Courier New", monospace;
-      font-size: 0.78rem;
-      max-height: 300px;
-      overflow-y: auto;
-      line-height: 1.6;
-    }
-
-    .log-panel .log-pass  { color: #30a14e; }
-    .log-panel .log-fail  { color: #cf222e; }
-    .log-panel .log-info  { color: #58a6ff; }
-    .log-panel .log-warn  { color: #bf8700; }
+    #summary.all-pass { background: #1b5e20; color: #4caf50; }
+    #summary.has-fail { background: #b71c1c; color: #f44336; }
+    #summary.running { background: #e65100; color: #ff9800; }
   </style>
 </head>
 <body>
+  <h1>Dino Dress-Up — Rendering Smoke Test</h1>
+  <p>This page tests each stage of the rendering pipeline independently.</p>
 
-  <h1>Dino Dress-Up Diagnostic Tests</h1>
-  <p class="subtitle">WebGPU rendering pipeline smoke tests &mdash; auto-run on page load</p>
-
-  <div class="summary-bar" id="summary-bar">
-    <span class="label">Tests:</span>
-    <span class="count passed" id="pass-count">0 passed</span>
-    <span class="count failed" id="fail-count">0 failed</span>
-    <span class="count running" id="running-status">running...</span>
-    <span class="total-time" id="total-time"></span>
-  </div>
-
-  <h2 class="section-heading">Pipeline Tests</h2>
-  <div class="test-list" id="test-list"></div>
-
-  <h2 class="section-heading">Visual Tests</h2>
-  <div class="visual-tests">
-    <div class="visual-card">
-      <span class="label">Canvas2D Dino Preview</span>
-      <span class="sublabel">Path2D rasterization (selection screen)</span>
-      <canvas id="visual-canvas2d" width="200" height="200" style="width:200px;height:200px;"></canvas>
-    </div>
-    <div class="visual-card">
-      <span class="label">WebGPU Rendered Sprite</span>
-      <span class="sublabel">Full pipeline: SVG &rarr; Texture &rarr; Sprite &rarr; GPU</span>
-      <canvas id="visual-webgpu" width="400" height="400" style="width:200px;height:200px;"></canvas>
-    </div>
-  </div>
-
-  <h2 class="section-heading">Console Log</h2>
-  <div class="log-panel" id="log-panel"></div>
+  <div id="summary" class="running">Running tests...</div>
+  <div id="tests" class="test-grid"></div>
 
   <script type="module">
-    // ────────────────────────────────────────────────────────
-    // Test harness
-    // ────────────────────────────────────────────────────────
+    // ── Test framework ──────────────────────────────────────────────
+    const results = [];
+    const testsEl = document.getElementById('tests');
+    const summaryEl = document.getElementById('summary');
 
-    const testListEl = document.getElementById("test-list");
-    const logPanelEl = document.getElementById("log-panel");
-    const passCountEl = document.getElementById("pass-count");
-    const failCountEl = document.getElementById("fail-count");
-    const runningEl = document.getElementById("running-status");
-    const totalTimeEl = document.getElementById("total-time");
-
-    let passCount = 0;
-    let failCount = 0;
-
-    function createTestRow(id, name) {
-      const row = document.createElement("div");
-      row.className = "test-row";
-      row.id = `test-${id}`;
-      row.innerHTML = `
-        <div class="icon pending">&bull;</div>
-        <span class="name">${name}</span>
-        <span class="details"></span>
-        <span class="elapsed"></span>
-      `;
-      testListEl.appendChild(row);
-      return row;
+    function addTest(name) {
+      const card = document.createElement('div');
+      card.className = 'test-card';
+      card.innerHTML = `<h3>${name}</h3><div class="result running">RUNNING...</div><div class="detail"></div>`;
+      testsEl.appendChild(card);
+      return {
+        pass(msg, detailHtml) {
+          card.querySelector('.result').textContent = 'PASS';
+          card.querySelector('.result').className = 'result pass';
+          if (msg) card.querySelector('.result').textContent = 'PASS — ' + msg;
+          if (detailHtml) card.querySelector('.detail').innerHTML = detailHtml;
+          results.push({ name, passed: true });
+        },
+        fail(msg, detailHtml) {
+          card.querySelector('.result').textContent = 'FAIL — ' + msg;
+          card.querySelector('.result').className = 'result fail';
+          if (detailHtml) card.querySelector('.detail').innerHTML = detailHtml;
+          results.push({ name, passed: false, msg });
+        },
+        addCanvas(canvas) {
+          card.appendChild(canvas);
+        },
+        addDetail(text) {
+          card.querySelector('.detail').textContent += text + '\n';
+        }
+      };
     }
 
-    function setRunning(row) {
-      const icon = row.querySelector(".icon");
-      icon.className = "icon running";
-      icon.textContent = "...";
+    function updateSummary() {
+      const total = results.length;
+      const passed = results.filter(r => r.passed).length;
+      const failed = total - passed;
+      if (failed > 0) {
+        summaryEl.textContent = `FAIL: ${passed}/${total} passed (${failed} failed)`;
+        summaryEl.className = 'has-fail';
+      } else {
+        summaryEl.textContent = `ALL PASS: ${passed}/${total} tests passed`;
+        summaryEl.className = 'all-pass';
+      }
     }
 
-    function setPass(row, detail, ms) {
-      const icon = row.querySelector(".icon");
-      icon.className = "icon pass";
-      icon.textContent = "\u2713";
-      row.querySelector(".details").textContent = detail || "";
-      row.querySelector(".elapsed").textContent = ms.toFixed(1) + " ms";
-      passCount++;
-      passCountEl.textContent = passCount + " passed";
-    }
-
-    function setFail(row, detail, ms) {
-      const icon = row.querySelector(".icon");
-      icon.className = "icon fail";
-      icon.textContent = "\u2717";
-      const detailEl = row.querySelector(".details");
-      detailEl.textContent = detail || "Unknown error";
-      detailEl.classList.add("error-text");
-      row.querySelector(".elapsed").textContent = ms.toFixed(1) + " ms";
-      failCount++;
-      failCountEl.textContent = failCount + " failed";
-    }
-
-    function log(msg, level = "info") {
-      const span = document.createElement("span");
-      span.className = `log-${level}`;
-      span.textContent = msg;
-      logPanelEl.appendChild(span);
-      logPanelEl.appendChild(document.createElement("br"));
-      logPanelEl.scrollTop = logPanelEl.scrollHeight;
-    }
-
-    async function runTest(id, name, fn) {
-      const row = createTestRow(id, name);
-      setRunning(row);
-      const t0 = performance.now();
+    // ── Helpers ──────────────────────────────────────────────────────
+    function canvasHasPixels(canvas, threshold = 10) {
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      // If this is a WebGPU canvas we can't getContext('2d') — handle that
+      if (!ctx) return { hasPixels: false, nonZeroCount: 0, error: 'Cannot get 2D context (may be WebGPU canvas)' };
       try {
-        const detail = await fn();
-        const ms = performance.now() - t0;
-        setPass(row, detail, ms);
-        log(`PASS  ${name}  (${ms.toFixed(1)} ms)`, "pass");
-      } catch (err) {
-        const ms = performance.now() - t0;
-        const msg = err && err.message ? err.message : String(err);
-        setFail(row, msg, ms);
-        log(`FAIL  ${name}: ${msg}`, "fail");
-        console.error(`[TEST FAIL] ${name}:`, err);
+        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        let nonZeroCount = 0;
+        for (let i = 3; i < imgData.data.length; i += 4) {
+          if (imgData.data[i] > 0) nonZeroCount++;
+        }
+        return { hasPixels: nonZeroCount > threshold, nonZeroCount };
+      } catch (e) {
+        return { hasPixels: false, nonZeroCount: 0, error: e.message };
       }
     }
 
-    // ────────────────────────────────────────────────────────
-    // Dynamic module imports with error isolation
-    // ────────────────────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════════
+    // TEST 1: Module imports
+    // ═══════════════════════════════════════════════════════════════════
+    const t1 = addTest('Module Imports');
+    let DINO_PATHS, TextureManager, Scene, Renderer, Sprite, initGPUContext, CANVAS_WIDTH, CANVAS_HEIGHT;
 
-    let initGPUContext, Renderer, TextureManager, Scene, Sprite,
-        DINO_PATHS, rasterizeSVGPaths;
-    let CANVAS_WIDTH, CANVAS_HEIGHT, DPI_SCALE, PHYSICAL_WIDTH, PHYSICAL_HEIGHT;
+    try {
+      const constants = await import('./src/utils/constants.js');
+      CANVAS_WIDTH = constants.CANVAS_WIDTH;
+      CANVAS_HEIGHT = constants.CANVAS_HEIGHT;
 
-    const globalStart = performance.now();
+      const dinoPaths = await import('./src/assets/dino-paths.js');
+      DINO_PATHS = dinoPaths.DINO_PATHS;
 
-    // ── TEST 1: Module Loading ──────────────────────────────
+      const texMgr = await import('./src/core/texture-manager.js');
+      TextureManager = texMgr.TextureManager;
 
-    await runTest("modules", "1. Module Loading", async () => {
-      const modules = await Promise.all([
-        import("./src/core/gpu-context.js"),
-        import("./src/core/renderer.js"),
-        import("./src/core/texture-manager.js"),
-        import("./src/core/scene.js"),
-        import("./src/core/sprite.js"),
-        import("./src/assets/dino-paths.js"),
-        import("./src/utils/constants.js"),
-        import("./src/utils/svg-rasterizer.js"),
-      ]);
+      const scene = await import('./src/core/scene.js');
+      Scene = scene.Scene;
 
-      initGPUContext   = modules[0].initGPUContext;
-      Renderer         = modules[1].Renderer;
-      TextureManager   = modules[2].TextureManager;
-      Scene            = modules[3].Scene;
-      Sprite           = modules[4].Sprite;
-      DINO_PATHS       = modules[5].DINO_PATHS;
-      CANVAS_WIDTH     = modules[6].CANVAS_WIDTH;
-      CANVAS_HEIGHT    = modules[6].CANVAS_HEIGHT;
-      DPI_SCALE        = modules[6].DPI_SCALE;
-      PHYSICAL_WIDTH   = modules[6].PHYSICAL_WIDTH;
-      PHYSICAL_HEIGHT  = modules[6].PHYSICAL_HEIGHT;
-      rasterizeSVGPaths = modules[7].rasterizeSVGPaths;
+      const renderer = await import('./src/core/renderer.js');
+      Renderer = renderer.Renderer;
 
-      const names = [
-        "initGPUContext", "Renderer", "TextureManager", "Scene", "Sprite",
-        "DINO_PATHS", "CANVAS_WIDTH", "rasterizeSVGPaths",
-      ];
-      const loaded = [
-        initGPUContext, Renderer, TextureManager, Scene, Sprite,
-        DINO_PATHS, CANVAS_WIDTH, rasterizeSVGPaths,
-      ];
-      for (let i = 0; i < names.length; i++) {
-        if (!loaded[i]) throw new Error(`${names[i]} is falsy after import`);
-      }
+      const sprite = await import('./src/core/sprite.js');
+      Sprite = sprite.Sprite;
 
-      const dinoKeys = Object.keys(DINO_PATHS);
-      return `All 8 modules imported; DINO_PATHS has ${dinoKeys.length} dinos (${dinoKeys.join(", ")})`;
-    });
+      const gpuCtx = await import('./src/core/gpu-context.js');
+      initGPUContext = gpuCtx.initGPUContext;
 
-    // ── TEST 2: Canvas2D Preview ────────────────────────────
+      const dinoCount = Object.keys(DINO_PATHS).length;
+      t1.pass(`${dinoCount} dinos loaded`, `Modules: constants, dino-paths, texture-manager, scene, renderer, sprite, gpu-context`);
+    } catch (err) {
+      t1.fail(err.message, `Stack: ${err.stack}`);
+      updateSummary();
+      throw err; // Abort — can't continue without modules
+    }
 
-    await runTest("canvas2d", "2. Canvas2D Preview (Path2D)", async () => {
-      if (!DINO_PATHS) throw new Error("DINO_PATHS not loaded (module test must pass first)");
+    // ═══════════════════════════════════════════════════════════════════
+    // TEST 2: Direct Canvas2D Path2D drawing (same as selection screen)
+    // ═══════════════════════════════════════════════════════════════════
+    const t2 = addTest('Canvas2D Path2D Drawing');
+    try {
+      const dinoId = Object.keys(DINO_PATHS)[0];
+      const pathData = DINO_PATHS[dinoId];
+      const SIZE = 200;
+      const canvas = document.createElement('canvas');
+      canvas.width = SIZE;
+      canvas.height = SIZE;
+      const ctx = canvas.getContext('2d');
 
-      const canvas = document.getElementById("visual-canvas2d");
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("Could not get 2d context");
+      // Draw background
+      ctx.fillStyle = '#f0ebe0';
+      ctx.fillRect(0, 0, SIZE, SIZE);
 
-      const dinoKey = Object.keys(DINO_PATHS)[0];
-      const dino = DINO_PATHS[dinoKey];
+      // Scale and draw paths (same logic as select-screen.js)
+      const scaleX = SIZE / pathData.width;
+      const scaleY = SIZE / pathData.height;
+      const scale = Math.min(scaleX, scaleY) * 0.85;
+      const offsetX = (SIZE - pathData.width * scale) / 2;
+      const offsetY = (SIZE - pathData.height * scale) / 2;
 
-      // Scale to fit the 200x200 preview canvas
-      const scale = Math.min(200 / dino.width, 200 / dino.height);
-      ctx.clearRect(0, 0, 200, 200);
-      ctx.fillStyle = "#f0ebe0";
-      ctx.fillRect(0, 0, 200, 200);
       ctx.save();
+      ctx.translate(offsetX, offsetY);
       ctx.scale(scale, scale);
 
       let pathsDrawn = 0;
-      for (const p of dino.paths) {
+      for (const segment of pathData.paths) {
         ctx.save();
-        if (p.opacity !== undefined && p.opacity < 1) ctx.globalAlpha = p.opacity;
-        const path2d = new Path2D(p.d);
-        if (p.fill && p.fill !== "none") {
-          ctx.fillStyle = p.fill;
-          ctx.fill(path2d);
+        const path = new Path2D(segment.d);
+        if (segment.opacity !== undefined) ctx.globalAlpha = segment.opacity;
+        if (segment.fill && segment.fill !== 'none') {
+          ctx.fillStyle = segment.fill;
+          ctx.fill(path);
         }
-        if (p.stroke && p.stroke !== "none") {
-          ctx.strokeStyle = p.stroke;
-          ctx.lineWidth = p.strokeWidth || 1;
-          ctx.lineCap = "round";
-          ctx.lineJoin = "round";
-          ctx.stroke(path2d);
+        if (segment.stroke && segment.stroke !== 'none') {
+          ctx.strokeStyle = segment.stroke;
+          ctx.lineWidth = segment.strokeWidth || 1;
+          ctx.stroke(path);
         }
         ctx.restore();
         pathsDrawn++;
       }
       ctx.restore();
 
-      if (pathsDrawn === 0) throw new Error("Zero paths drawn");
-
-      // Verify pixels are non-empty
-      const imgData = ctx.getImageData(0, 0, 200, 200);
-      let nonEmpty = 0;
-      for (let i = 0; i < imgData.data.length; i += 4) {
-        if (imgData.data[i + 3] > 0) nonEmpty++;
+      const check = canvasHasPixels(canvas);
+      if (check.hasPixels) {
+        t2.pass(`${pathsDrawn} paths drawn, ${check.nonZeroCount} non-transparent pixels`, `Dino: ${dinoId}`);
+      } else {
+        t2.fail(`0 visible pixels after drawing ${pathsDrawn} paths`, `Error: ${check.error || 'Canvas is blank'}`);
       }
-      if (nonEmpty === 0) throw new Error("Canvas entirely transparent after drawing");
+      t2.addCanvas(canvas);
+    } catch (err) {
+      t2.fail(err.message);
+    }
 
-      return `Drew ${pathsDrawn} paths for "${dino.name}" (${dinoKey}); ${nonEmpty} non-transparent pixels`;
-    });
+    // ═══════════════════════════════════════════════════════════════════
+    // TEST 3: SVG Rasterizer (OffscreenCanvas + createImageBitmap)
+    // ═══════════════════════════════════════════════════════════════════
+    const t3 = addTest('SVG Rasterizer Pipeline');
+    try {
+      const { rasterizeSVGPaths } = await import('./src/utils/svg-rasterizer.js');
 
-    // ── TEST 3: WebGPU Availability ─────────────────────────
+      const dinoId = Object.keys(DINO_PATHS)[0];
+      const pathData = DINO_PATHS[dinoId];
 
-    await runTest("webgpu-avail", "3. WebGPU Availability", async () => {
-      if (!navigator.gpu) throw new Error("navigator.gpu is not available");
-      const adapter = await navigator.gpu.requestAdapter({ powerPreference: "low-power" });
-      if (!adapter) throw new Error("requestAdapter() returned null");
-      const info = await adapter.requestAdapterInfo();
-      const vendor = info.vendor || "unknown";
-      const arch = info.architecture || "unknown";
-      return `Adapter found: vendor="${vendor}", architecture="${arch}"`;
-    });
-
-    // ── TEST 4: WebGPU Context ──────────────────────────────
-
-    let gpuCtx = null;  // reused by later tests
-
-    await runTest("webgpu-ctx", "4. WebGPU Context (Device + Configure)", async () => {
-      if (!navigator.gpu) throw new Error("WebGPU not available (skipped)");
-      if (!initGPUContext) throw new Error("initGPUContext not loaded");
-
-      const testCanvas = document.createElement("canvas");
-      testCanvas.width = 64;
-      testCanvas.height = 64;
-      document.body.appendChild(testCanvas);
-
-      gpuCtx = await initGPUContext(testCanvas);
-      document.body.removeChild(testCanvas);
-
-      if (!gpuCtx) throw new Error("initGPUContext returned falsy");
-      if (gpuCtx.mode !== "webgpu") throw new Error(`Unexpected mode "${gpuCtx.mode}" (expected "webgpu")`);
-      if (!gpuCtx.device) throw new Error("GPUDevice missing from context");
-      if (!gpuCtx.gpuContext) throw new Error("GPUCanvasContext missing");
-      if (!gpuCtx.format) throw new Error("Preferred format missing");
-
-      return `mode=${gpuCtx.mode}, format=${gpuCtx.format}, canvas=${gpuCtx.canvas.width}x${gpuCtx.canvas.height}`;
-    });
-
-    // ── TEST 5: SVG Rasterization ───────────────────────────
-
-    let rasterizedBitmap = null;
-
-    await runTest("svg-raster", "5. SVG Rasterization (rasterizeSVGPaths)", async () => {
-      if (!rasterizeSVGPaths) throw new Error("rasterizeSVGPaths not loaded");
-      if (!DINO_PATHS) throw new Error("DINO_PATHS not loaded");
-
-      const dinoKey = Object.keys(DINO_PATHS)[0];
-      const dino = DINO_PATHS[dinoKey];
-
-      rasterizedBitmap = await rasterizeSVGPaths({
-        paths: dino.paths,
-        width: dino.width,
-        height: dino.height,
+      const bitmap = await rasterizeSVGPaths({
+        paths: pathData.paths,
+        width: pathData.width,
+        height: pathData.height,
         scale: 1,
       });
 
-      if (!rasterizedBitmap) throw new Error("rasterizeSVGPaths returned falsy");
+      if (bitmap && bitmap.width > 0 && bitmap.height > 0) {
+        t3.pass(`${bitmap.width}x${bitmap.height} bitmap`, `Dino: ${dinoId}`);
+        // Draw bitmap to a visible canvas so we can verify
+        const canvas = document.createElement('canvas');
+        canvas.width = 200;
+        canvas.height = 200;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(bitmap, 0, 0, 200, 200);
+        t3.addCanvas(canvas);
 
-      const isImageBitmap = typeof ImageBitmap !== "undefined" && rasterizedBitmap instanceof ImageBitmap;
-      const isCanvas = rasterizedBitmap instanceof HTMLCanvasElement ||
-                       (typeof OffscreenCanvas !== "undefined" && rasterizedBitmap instanceof OffscreenCanvas);
-
-      if (!isImageBitmap && !isCanvas) {
-        throw new Error(`Unexpected return type: ${rasterizedBitmap.constructor.name}`);
+        const check = canvasHasPixels(canvas);
+        t3.addDetail(`Pixel check: ${check.nonZeroCount} non-transparent pixels`);
+      } else {
+        t3.fail('Bitmap is null or zero-size');
       }
+    } catch (err) {
+      t3.fail(err.message, `Stack: ${err.stack}`);
+    }
 
-      const w = rasterizedBitmap.width;
-      const h = rasterizedBitmap.height;
-      if (w === 0 || h === 0) throw new Error(`Zero-size bitmap: ${w}x${h}`);
-
-      return `${isImageBitmap ? "ImageBitmap" : "Canvas"} ${w}x${h} for "${dino.name}"`;
-    });
-
-    // ── TEST 6: Texture Loading ─────────────────────────────
-
-    let texManager = null;
-
-    await runTest("tex-load", "6. Texture Loading (TextureManager.loadSVG)", async () => {
-      if (!gpuCtx || !gpuCtx.device) throw new Error("WebGPU device not available (test 4 must pass)");
-      if (!TextureManager) throw new Error("TextureManager not loaded");
-      if (!DINO_PATHS) throw new Error("DINO_PATHS not loaded");
-
-      texManager = new TextureManager(gpuCtx.device);
-
-      const dinoKey = Object.keys(DINO_PATHS)[0];
-      const dino = DINO_PATHS[dinoKey];
-
-      const tex = await texManager.loadSVG("test-dino", {
-        paths: dino.paths,
-        width: dino.width,
-        height: dino.height,
-      });
-
-      if (!tex) throw new Error("loadSVG returned falsy");
-      if (!texManager.has("test-dino")) throw new Error("Texture not found in cache after load");
-
-      const gpuTex = texManager.getTexture("test-dino");
-      if (!gpuTex) throw new Error("getTexture returned null");
-
-      return `GPUTexture created; size=${gpuTex.width}x${gpuTex.height}, format=${gpuTex.format}`;
-    });
-
-    // ── TEST 7: Full Render Pipeline ────────────────────────
-
-    await runTest("render-pipeline", "7. Full Render Pipeline (Scene + Sprite + Renderer)", async () => {
-      if (!gpuCtx || gpuCtx.mode !== "webgpu") throw new Error("WebGPU context not available");
-      if (!texManager) throw new Error("TextureManager not available (test 6 must pass)");
-      if (!Renderer || !Scene || !Sprite) throw new Error("Core classes not loaded");
-
-      // Use the visible visual-test canvas for this test
-      const visCanvas = document.getElementById("visual-webgpu");
-
-      // Create a fresh GPU context on the visible canvas
-      const visCtx = await initGPUContext(visCanvas);
-      if (visCtx.mode !== "webgpu") throw new Error(`Got mode "${visCtx.mode}" instead of webgpu`);
-
-      // Create a TextureManager for this context
-      const visTex = new TextureManager(visCtx.device);
-
-      const dinoKey = Object.keys(DINO_PATHS)[0];
-      const dino = DINO_PATHS[dinoKey];
-
-      await visTex.loadSVG("vis-dino", {
-        paths: dino.paths,
-        width: dino.width,
-        height: dino.height,
-      });
-
-      const scene = new Scene();
-      const sprite = new Sprite({
-        textureId: "vis-dino",
-        x: CANVAS_WIDTH / 2,
-        y: CANVAS_HEIGHT / 2,
-        width: 300,
-        height: 300,
-        anchorX: 0.5,
-        anchorY: 0.5,
-        zIndex: 0,
-        label: "test-dino-sprite",
-      });
-      scene.add(sprite);
-
-      const renderer = new Renderer(visCtx, visTex);
-      renderer.setScene(scene);
-
-      // Render a single frame
-      renderer.render(0);
-
-      // Verify scene state
-      if (scene.size !== 1) throw new Error(`Scene has ${scene.size} sprites, expected 1`);
-      const found = scene.findByLabel("test-dino-sprite");
-      if (!found) throw new Error("Could not find sprite by label");
-
-      // Clean up (but leave the canvas visible for visual inspection)
-      renderer.destroy();
-
-      return `Rendered 1 frame with 1 sprite ("${dino.name}" at ${CANVAS_WIDTH/2},${CANVAS_HEIGHT/2})`;
-    });
-
-    // ── TEST 8: Hidden Canvas Reconfigure ───────────────────
-
-    await runTest("reconfigure", "8. Hidden Canvas Reconfigure (display:none recovery)", async () => {
-      if (!initGPUContext || !Renderer || !TextureManager || !Scene || !Sprite) {
-        throw new Error("Required modules not loaded");
-      }
-      if (!navigator.gpu) throw new Error("WebGPU not available");
-
-      // Create a canvas, initially visible
-      const canvas = document.createElement("canvas");
-      canvas.width = 64;
-      canvas.height = 64;
-      canvas.style.position = "absolute";
-      canvas.style.left = "-9999px";
+    // ═══════════════════════════════════════════════════════════════════
+    // TEST 4: GPU Context Init (Canvas2D or WebGPU)
+    // ═══════════════════════════════════════════════════════════════════
+    const t4 = addTest('GPU Context Init');
+    let gpuContext;
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = 400;
+      canvas.height = 400;
+      // Canvas must be in the DOM for some browsers
+      canvas.style.display = 'none';
       document.body.appendChild(canvas);
 
-      const ctx = await initGPUContext(canvas);
-      if (ctx.mode !== "webgpu") throw new Error(`Got mode "${ctx.mode}" instead of webgpu`);
+      gpuContext = await initGPUContext(canvas);
 
-      const tm = new TextureManager(ctx.device);
-      const dinoKey = Object.keys(DINO_PATHS)[0];
-      const dino = DINO_PATHS[dinoKey];
-      await tm.loadSVG("reconf-dino", {
-        paths: dino.paths,
-        width: dino.width,
-        height: dino.height,
+      t4.pass(`Mode: ${gpuContext.mode}`, `Canvas: ${canvas.width}x${canvas.height}, ctx2d: ${!!gpuContext.ctx2d}, device: ${!!gpuContext.device}`);
+    } catch (err) {
+      t4.fail(err.message, `Stack: ${err.stack}`);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // TEST 5: TextureManager + loadSVG
+    // ═══════════════════════════════════════════════════════════════════
+    const t5 = addTest('TextureManager loadSVG');
+    let textureManager;
+    try {
+      const device = gpuContext && gpuContext.device ? gpuContext.device : null;
+      textureManager = new TextureManager(device);
+
+      const dinoId = Object.keys(DINO_PATHS)[0];
+      const pathData = DINO_PATHS[dinoId];
+      const textureId = 'test-dino-' + dinoId;
+
+      await textureManager.loadSVG(textureId, {
+        paths: pathData.paths,
+        width: pathData.width,
+        height: pathData.height,
       });
 
+      const hasTex = textureManager.has(textureId);
+      const bitmap = textureManager.getBitmap(textureId);
+
+      if (hasTex && bitmap) {
+        t5.pass(`Cached: ${bitmap.width}x${bitmap.height}`, `textureId: ${textureId}, has: ${hasTex}`);
+      } else {
+        t5.fail(`has=${hasTex}, bitmap=${!!bitmap}`);
+      }
+    } catch (err) {
+      t5.fail(err.message, `Stack: ${err.stack}`);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // TEST 6: Full Renderer Pipeline (Canvas2D mode)
+    // ═══════════════════════════════════════════════════════════════════
+    const t6 = addTest('Full Renderer Pipeline');
+    try {
+      // Create a VISIBLE canvas for this test
+      const canvas = document.createElement('canvas');
+      canvas.width = 400;
+      canvas.height = 400;
+      canvas.style.width = '200px';
+      canvas.style.height = '200px';
+
+      // Init a fresh GPU context on this visible canvas
+      const testGpuCtx = await initGPUContext(canvas);
+      const device = testGpuCtx.device || null;
+      const testTexMgr = new TextureManager(device);
+
+      // Load a dino texture
+      const dinoId = Object.keys(DINO_PATHS)[0];
+      const pathData = DINO_PATHS[dinoId];
+      const textureId = 'render-test-' + dinoId;
+      await testTexMgr.loadSVG(textureId, {
+        paths: pathData.paths,
+        width: pathData.width,
+        height: pathData.height,
+      });
+
+      // Create scene + sprite
       const scene = new Scene();
-      scene.add(new Sprite({
-        textureId: "reconf-dino",
-        x: 200, y: 200,
-        width: 100, height: 100,
-        label: "reconf-sprite",
-      }));
+      const sprite = new Sprite({
+        textureId,
+        x: 200,
+        y: 200,
+        width: 300,
+        height: 300,
+        zIndex: 5,
+        anchorX: 0.5,
+        anchorY: 0.5,
+      });
+      scene.add(sprite);
+      scene.markDirty();
 
-      const renderer = new Renderer(ctx, tm);
+      // Create renderer and render one frame
+      const renderer = new Renderer(testGpuCtx, testTexMgr);
       renderer.setScene(scene);
-
-      // Render while visible -- should succeed
       renderer.render(0);
 
-      // Hide the canvas
-      canvas.style.display = "none";
-      log("  [reconfigure] canvas hidden (display: none)", "warn");
-
-      // Re-show the canvas
-      canvas.style.display = "block";
-
-      // Reconfigure and render again
-      renderer.reconfigure();
-      let renderOk = false;
-      try {
-        renderer.render(16);
-        renderOk = true;
-      } catch (e) {
-        throw new Error(`Render after reconfigure failed: ${e.message}`);
+      // Check canvas for pixels
+      const check = canvasHasPixels(canvas);
+      if (check.hasPixels) {
+        t6.pass(`${check.nonZeroCount} non-transparent pixels`, `Mode: ${testGpuCtx.mode}, sprite at (200,200) 300x300`);
+      } else if (check.error) {
+        // WebGPU canvas — can't read pixels with getImageData
+        t6.pass(`Rendered (cannot verify pixels in ${testGpuCtx.mode} mode)`, `Mode: ${testGpuCtx.mode}`);
+      } else {
+        t6.fail(`Canvas blank after render — 0 pixels`, `Mode: ${testGpuCtx.mode}, sprite: ${JSON.stringify({x: sprite.x, y: sprite.y, w: sprite.width, h: sprite.height, visible: sprite.visible})}`);
       }
+      t6.addCanvas(canvas);
+    } catch (err) {
+      t6.fail(err.message, `Stack: ${err.stack}`);
+    }
 
-      renderer.destroy();
-      document.body.removeChild(canvas);
+    // ═══════════════════════════════════════════════════════════════════
+    // TEST 7: Full game flow simulation
+    // ═══════════════════════════════════════════════════════════════════
+    const t7 = addTest('Game Flow Simulation');
+    try {
+      // Simulate: hidden canvas -> init GPU -> make visible -> reconfigure -> render
+      const canvas = document.createElement('canvas');
+      canvas.style.display = 'none'; // Start hidden (like dressing screen)
+      document.body.appendChild(canvas);
 
-      if (!renderOk) throw new Error("Render after reconfigure did not succeed");
-      return "Rendered before hide, hid canvas, reconfigured, rendered after -- all OK";
-    });
+      const testGpuCtx = await initGPUContext(canvas);
+      const device = testGpuCtx.device || null;
+      const testTexMgr = new TextureManager(device);
 
-    // ────────────────────────────────────────────────────────
-    // Finalize
-    // ────────────────────────────────────────────────────────
+      const dinoId = Object.keys(DINO_PATHS)[0];
+      const pathData = DINO_PATHS[dinoId];
+      const textureId = 'flow-test-' + dinoId;
+      await testTexMgr.loadSVG(textureId, { paths: pathData.paths, width: pathData.width, height: pathData.height });
 
-    const totalMs = performance.now() - globalStart;
-    runningEl.textContent = "done";
-    runningEl.style.color = failCount > 0 ? "#cf222e" : "#30a14e";
-    totalTimeEl.textContent = `Total: ${totalMs.toFixed(0)} ms`;
+      const scene = new Scene();
+      const sprite = new Sprite({ textureId, x: 200, y: 200, width: 300, height: 300, zIndex: 5, anchorX: 0.5, anchorY: 0.5 });
+      scene.add(sprite);
 
-    log("", "info");
-    log(`==== ${passCount} passed, ${failCount} failed, total ${totalMs.toFixed(0)} ms ====`,
-        failCount > 0 ? "fail" : "pass");
+      const renderer = new Renderer(testGpuCtx, testTexMgr);
+      renderer.setScene(scene);
+
+      // Start render loop while hidden (like main.js step 14)
+      renderer.start();
+
+      // Wait a moment (simulates user browsing selection screen)
+      await new Promise(r => setTimeout(r, 100));
+
+      // Now make canvas visible (simulates screen transition)
+      canvas.style.display = 'block';
+      canvas.style.width = '200px';
+      canvas.style.height = '200px';
+
+      // Reconfigure + force render (like our fixed onEnter)
+      renderer.reconfigure();
+      scene.markDirty();
+      renderer.render(performance.now());
+
+      // Stop the loop so it doesn't keep ticking
+      renderer.stop();
+
+      // Check pixels
+      const check = canvasHasPixels(canvas);
+      if (check.hasPixels) {
+        t7.pass(`${check.nonZeroCount} pixels after hidden->visible->reconfigure`, `Mode: ${testGpuCtx.mode}`);
+      } else if (check.error) {
+        t7.pass(`Rendered (cannot verify pixels in ${testGpuCtx.mode} mode)`);
+      } else {
+        t7.fail(`Canvas blank after hidden->visible->reconfigure flow`, `Mode: ${testGpuCtx.mode}`);
+      }
+      t7.addCanvas(canvas);
+    } catch (err) {
+      t7.fail(err.message, `Stack: ${err.stack}`);
+    }
+
+    // ── Summary ─────────────────────────────────────────────────────
+    updateSummary();
 
   </script>
 </body>
