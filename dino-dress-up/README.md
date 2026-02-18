@@ -2,6 +2,12 @@
 
 A WebGPU-powered dinosaur dressing game! Choose from 3 adorable dinosaur characters and dress them up with 46+ clothing items across 8 categories.
 
+## 🌐 Live Demo
+
+**[Play it here → https://manu-labs.github.io/agent-team-workspace/](https://manu-labs.github.io/agent-team-workspace/)**
+
+> Requires a WebGPU-capable browser: Chrome 113+, Edge 113+, or Chrome on Android 121+
+
 ## Features
 
 - **3 Dinosaur Characters**: Rex (T-Rex), Cera (Triceratops), and Steggy (Stegosaurus)
@@ -19,7 +25,7 @@ A WebGPU-powered dinosaur dressing game! Choose from 3 adorable dinosaur charact
 - Programmatic SVG-to-texture asset pipeline (zero external images)
 - HTML/CSS overlay for UI controls
 
-## Getting Started
+## Getting Started (Local Development)
 
 1. Serve the `dino-dress-up/` folder with any static file server
 2. Open in a WebGPU-capable browser (Chrome 113+, Edge 113+)
@@ -32,6 +38,8 @@ cd dino-dress-up && python -m http.server 8080
 # Using Node
 npx serve dino-dress-up
 ```
+
+> **Note:** WebGPU requires HTTPS or localhost. The local dev server on localhost works fine.
 
 ## Project Structure
 
@@ -52,4 +60,14 @@ dino-dress-up/
 
 ## Deployment
 
-Deploy to GitHub Pages or any static hosting. No build step needed.
+The game is automatically deployed to GitHub Pages via GitHub Actions on every push to `main` that touches the `dino-dress-up/` directory.
+
+**Deployment pipeline:**
+- Workflow: `.github/workflows/deploy-dino-dress-up.yml`
+- Trigger: Push to `main` (paths: `dino-dress-up/**`) or manual dispatch
+- Deploys to: `gh-pages` branch → served at `https://manu-labs.github.io/agent-team-workspace/`
+- HTTPS is enforced (required for WebGPU)
+
+### Manual Deploy
+
+Go to the [Actions tab](https://github.com/manu-labs/agent-team-workspace/actions/workflows/deploy-dino-dress-up.yml) and click **"Run workflow"**.
