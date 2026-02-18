@@ -202,11 +202,11 @@ export class Renderer {
 
     // Check if texture is loaded
     const texture = this.textureManager.getTexture(sprite.textureId);
-    if (\!texture) return null;
+    if (!texture) return null;
 
     let resources = this._spriteGPUResources.get(sprite.id);
 
-    if (\!resources) {
+    if (!resources) {
       // Sprite uniform: mat4 model (64) + vec4 tint (16) + f32 opacity (4) + padding (12) = 96 bytes
       const uniformBuffer = device.createBuffer({
         label: `Sprite Uniform: ${sprite.label || sprite.id}`,
@@ -229,9 +229,9 @@ export class Renderer {
     }
 
     // Recreate bind group if texture changed
-    if (resources.textureId \!== sprite.textureId) {
+    if (resources.textureId !== sprite.textureId) {
       const newTexture = this.textureManager.getTexture(sprite.textureId);
-      if (\!newTexture) return null;
+      if (!newTexture) return null;
 
       resources.bindGroup = device.createBindGroup({
         label: `Sprite Bind Group: ${sprite.label || sprite.id}`,
@@ -269,7 +269,7 @@ export class Renderer {
    * @param {number} [timestamp=0] - Current timestamp in ms
    */
   render(timestamp = 0) {
-    if (\!this.scene) return;
+    if (!this.scene) return;
 
     this._time = timestamp;
 
@@ -316,7 +316,7 @@ export class Renderer {
     // Draw each sprite back-to-front
     for (const sprite of sprites) {
       const resources = this._getSpriteGPUResources(sprite);
-      if (\!resources) continue;
+      if (!resources) continue;
 
       renderPass.setBindGroup(1, resources.bindGroup);
       renderPass.draw(VERTEX_COUNT);
@@ -343,7 +343,7 @@ export class Renderer {
     // Draw each sprite back-to-front
     for (const sprite of sprites) {
       const bitmap = this.textureManager.getBitmap(sprite.textureId);
-      if (\!bitmap) continue;
+      if (!bitmap) continue;
 
       ctx2d.save();
 
@@ -351,7 +351,7 @@ export class Renderer {
       ctx2d.globalAlpha = sprite.opacity;
       ctx2d.translate(sprite.x, sprite.y);
 
-      if (sprite.rotation \!== 0) {
+      if (sprite.rotation !== 0) {
         ctx2d.rotate(sprite.rotation);
       }
 
@@ -398,7 +398,7 @@ export class Renderer {
    * Internal render loop tick.
    */
   _tick = (timestamp) => {
-    if (\!this._running) return;
+    if (!this._running) return;
 
     const deltaTime = timestamp - this._lastFrameTime;
     this._lastFrameTime = timestamp;
@@ -455,3 +455,4 @@ export class Renderer {
     }
   }
 }
+
