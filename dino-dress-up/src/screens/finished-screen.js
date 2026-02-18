@@ -1,101 +1,110 @@
 /**
- * finished-screen.js - Finished/celebration screen controller
- * Part of the Dino Dress-Up screen system
+ * finished-screen.js - Finished screen controller
  *
- * Shows the dressed dinosaur with confetti celebration.
- * Provides Save Image, Dress Again, and New Dino buttons.
+ * The "admire your creation" screen. Shows the dressed dinosaur
+ * with confetti and buttons to save, dress again, or start over.
  */
 
 import { store } from "../state/store.js";
-import { dressAgain, goToSelection } from "../state/actions.js";
-import { spawnConfetti } from "../ui/animations.js";
+import { dressAgain, startOver } from "../state/actions.js";
 
 export class FinishedScreen {
   /**
-   * @param {HTMLElement} containerEl
-   * @param {Object} deps
-   * @param {import("../core/renderer.js").Renderer} deps.renderer
-   * @param {HTMLCanvasElement} deps.canvas - The main game canvas
+   * @param {Object} options
+   * @param {HTMLElement} options.container
+   * @param {import("../core/renderer.js").Renderer} options.renderer
    */
-  constructor(containerEl, deps) {
-    this._container = containerEl;
-    this._renderer = deps.renderer;
-    this._canvas = deps.canvas;
-
-    this._unsub = null;
-    this._confettiSpawned = false;
+  constructor({ container, renderer }) {
+    this._container = container;
+    this._renderer = renderer;
+    this._confettiTimer = null;
   }
 
-  /**
-   * Initialize the finished screen.
-   * Subscribes to screen changes to trigger confetti.
-   */
+  /** Wire up button event listeners. */
   init() {
-    // Wire up buttons
-    const saveBtn = this._container.querySelector("#btn-save");
-    const dressAgainBtn = this._container.querySelector("#btn-dress-again");
-    const newDinoBtn = this._container.querySelector("#btn-new-dino");
+    const btnSave = this._container.querySelector("[data-action=save]");
+    const btnDressAgain = this._container.querySelector("[data-action=dress-again]");
+    const btnNewDino = this._container.querySelector("[data-action=new-dino]");
 
-    if (saveBtn) {
-      saveBtn.addEventListener("click", () => this._saveImage());
-    }
-    if (dressAgainBtn) {
-      dressAgainBtn.addEventListener("click", () => dressAgain());
-    }
-    if (newDinoBtn) {
-      newDinoBtn.addEventListener("click", () => goToSelection());
-    }
-
-    // Subscribe to screen changes to trigger confetti
-    this._unsub = store.subscribe("currentScreen", (state) => {
-      if (state.currentScreen === "finished" && !this._confettiSpawned) {
-        this._celebrate();
-      } else if (state.currentScreen !== "finished") {
-        this._confettiSpawned = false;
-      }
-    });
+    if (btnSave) btnSave.addEventListener("click", () => this._saveImage());
+    if (btnDressAgain) btnDressAgain.addEventListener("click", () => dressAgain());
+    if (btnNewDino) btnNewDino.addEventListener("click", () => startOver());
   }
 
-  /**
-   * Trigger celebration effects.
-   */
-  _celebrate() {
-    this._confettiSpawned = true;
-
-    // Spawn confetti in the confetti layer
-    const confettiLayer = document.getElementById("confetti-layer");
-    if (confettiLayer) {
-      spawnConfetti(confettiLayer, { count: 60, duration: 3000 });
-    }
-  }
-
-  /**
-   * Save the current canvas as a PNG image.
-   */
+  /** Save the current canvas as a PNG image download. */
   _saveImage() {
-    if (!this._canvas) return;
+    const canvas = this._renderer.gpuContext.canvas;
+    if (!canvas) return;
 
     try {
-      // Force a render to make sure the canvas is up to date
-      this._renderer.render(performance.now());
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          console.warn("Could not create image blob");
+          return;
+        }
 
-      const dataUrl = this._canvas.toDataURL("image/png");
-      const link = document.createElement("a");
-      link.download = "dino-dress-up.png";
-      link.href = dataUrl;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+
+        const state = store.getState();
+        const dinoName = state.selectedDino || "dino";
+        link.download = dinoName + "-dressed-up.png";
+        link.href = url;
+
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        URL.revokeObjectURL(url);
+      }, "image/png");
     } catch (err) {
       console.error("Failed to save image:", err);
-      alert("Could not save image. Try using a screenshot instead!");
+      alert("Oops! Could not save the image. Try using a screenshot instead.");
     }
   }
 
-  /**
-   * Clean up.
-   */
+  /** Spawn CSS confetti burst. */
+  _spawnConfetti() {
+    const layer = document.getElementById("confetti-layer");
+    if (!layer) return;
+
+    const colors = ["#e84a2a", "#4caf50", "#ffd700", "#4169e1", "#ff69b4", "#9370db"];
+    const count = 60;
+
+    for (let i = 0; i < count; i++) {
+      const confetti = document.createElement("div");
+      confetti.className = "confetti-piece";
+      confetti.style.setProperty("--x", ((Math.random() - 0.5) * 600) + "px");
+      confetti.style.setProperty("--y", (-Math.random() * 400 - 100) + "px");
+      confetti.style.setProperty("--r", (Math.random() * 720 - 360) + "deg");
+      confetti.style.setProperty("--delay", (Math.random() * 0.3) + "s");
+      confetti.style.setProperty("--duration", (1 + Math.random() * 1.5) + "s");
+      confetti.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
+      confetti.style.left = (40 + Math.random() * 20) + "%";
+      confetti.style.top = (30 + Math.random() * 10) + "%";
+
+      layer.appendChild(confetti);
+    }
+
+    this._confettiTimer = setTimeout(() => {
+      if (layer) layer.innerHTML = "";
+    }, 3000);
+  }
+
+  onEnter() {
+    this._spawnConfetti();
+  }
+
+  onExit() {
+    if (this._confettiTimer) {
+      clearTimeout(this._confettiTimer);
+      this._confettiTimer = null;
+    }
+    const layer = document.getElementById("confetti-layer");
+    if (layer) layer.innerHTML = "";
+  }
+
   destroy() {
-    if (this._unsub) this._unsub();
+    this.onExit();
   }
 }
