@@ -22,9 +22,13 @@ export class FinishedScreen {
 
   /** Wire up button event listeners. */
   init() {
-    const btnSave = this._container.querySelector("[data-action=save]");
-    const btnDressAgain = this._container.querySelector("[data-action=dress-again]");
-    const btnNewDino = this._container.querySelector("[data-action=new-dino]");
+    // Match the button IDs from index.html
+    const btnSave = this._container.querySelector("#btn-save-image") ||
+                    this._container.querySelector("[data-action=save]");
+    const btnDressAgain = this._container.querySelector("#btn-dress-again") ||
+                          this._container.querySelector("[data-action=dress-again]");
+    const btnNewDino = this._container.querySelector("#btn-new-dino") ||
+                       this._container.querySelector("[data-action=new-dino]");
 
     if (btnSave) btnSave.addEventListener("click", () => this._saveImage());
     if (btnDressAgain) btnDressAgain.addEventListener("click", () => dressAgain());
@@ -33,6 +37,7 @@ export class FinishedScreen {
 
   /** Save the current canvas as a PNG image download. */
   _saveImage() {
+    // Use the main dino-canvas (shared between dressing and finished)
     const canvas = this._renderer.gpuContext.canvas;
     if (!canvas) return;
 
@@ -65,7 +70,9 @@ export class FinishedScreen {
 
   /** Spawn CSS confetti burst. */
   _spawnConfetti() {
-    const layer = document.getElementById("confetti-layer");
+    // Use the finished-confetti layer or fallback to confetti-layer
+    const layer = document.getElementById("finished-confetti") ||
+                  document.getElementById("confetti-layer");
     if (!layer) return;
 
     const colors = ["#e84a2a", "#4caf50", "#ffd700", "#4169e1", "#ff69b4", "#9370db"];
@@ -100,7 +107,8 @@ export class FinishedScreen {
       clearTimeout(this._confettiTimer);
       this._confettiTimer = null;
     }
-    const layer = document.getElementById("confetti-layer");
+    const layer = document.getElementById("finished-confetti") ||
+                  document.getElementById("confetti-layer");
     if (layer) layer.innerHTML = "";
   }
 
