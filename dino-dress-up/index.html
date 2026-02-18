@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dino Dress-Up 🦖</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Selection Screen -->
+    <div id="select-screen" class="screen active">
+      <h1 class="title">Dino Dress-Up</h1>
+      <p class="subtitle">Choose your dinosaur!</p>
+      <div id="dino-cards" class="dino-cards">
+        <!-- Dino cards injected by JS -->
+      </div>
+    </div>
+
+    <!-- Dressing Room Screen -->
+    <div id="dressing-screen" class="screen">
+      <div class="dressing-layout">
+        <div class="canvas-container">
+          <canvas id="game-canvas" width="800" height="800"></canvas>
+          <div class="canvas-controls">
+            <button id="btn-back" class="btn btn-secondary">← Back</button>
+            <button id="btn-clear" class="btn btn-secondary">Clear All</button>
+            <button id="btn-random" class="btn btn-accent">🎲 Randomize</button>
+            <button id="btn-done" class="btn btn-primary">Done! ✨</button>
+          </div>
+        </div>
+        <div id="clothing-panel" class="clothing-panel">
+          <div id="category-tabs" class="category-tabs">
+            <!-- Category tabs injected by JS -->
+          </div>
+          <div id="clothing-grid" class="clothing-grid">
+            <!-- Clothing items injected by JS -->
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Finished Screen -->
+    <div id="finished-screen" class="screen">
+      <h1 class="title">Looking Good! 🎉</h1>
+      <div class="finished-canvas-container">
+        <canvas id="finished-canvas" width="800" height="800"></canvas>
+      </div>
+      <div class="finished-controls">
+        <button id="btn-save" class="btn btn-primary">📸 Save Image</button>
+        <button id="btn-dress-again" class="btn btn-accent">Dress Again</button>
+        <button id="btn-new-dino" class="btn btn-secondary">New Dino</button>
+      </div>
+    </div>
+
+    <!-- WebGPU not supported banner -->
+    <div id="fallback-banner" class="fallback-banner" hidden>
+      ⚠️ WebGPU not available — using Canvas2D fallback. For the best experience, use Chrome 113+.
+    </div>
+  </div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
