@@ -34,7 +34,7 @@
 
 'use strict';
 
-import { createElement, clearChildren } from './dom-helpers.js';
+import { createElement, clearChildren } from '../utils/dom-helpers.js';
 import { bounceIn }                     from './animations.js';
 
 // ─── Toolbar Class ────────────────────────────────────────────────────────────
