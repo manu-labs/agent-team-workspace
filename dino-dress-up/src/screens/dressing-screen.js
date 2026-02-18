@@ -42,13 +42,17 @@ export class DressingScreen {
   init() {
     this._unsubscribers.push(
       store.subscribe('selectedDino', (state) => {
-        this._loadDino(state.selectedDino);
+        this._loadDino(state.selectedDino).catch(err => {
+          console.error('[DINO-RENDER] _loadDino failed:', err);
+        });
       })
     );
 
     this._unsubscribers.push(
       store.subscribe('appliedClothing', (state) => {
-        this._syncClothingSprites(state.appliedClothing);
+        this._syncClothingSprites(state.appliedClothing).catch(err => {
+          console.error('[DINO-RENDER] _syncClothingSprites failed:', err);
+        });
       })
     );
   }
@@ -60,85 +64,92 @@ export class DressingScreen {
   async _loadDino(dinoId) {
     if (!dinoId || dinoId === this._currentDinoId) return;
 
-    // Remove old dino sprite
-    if (this._dinoSprite) {
-      this._scene.removeSprite(this._dinoSprite);
-      this._renderer.releaseSpriteResources(this._dinoSprite.id);
-      this._dinoSprite = null;
-    }
-
-    this._clearAllClothingSprites();
-
-    const dinoData = DINO_PATHS[dinoId];
-    if (!dinoData) return;
-
-    // Load dino texture (may already be cached from preload)
-    const textureId = 'dino-' + dinoId;
-    await this._textureManager.loadSVG(textureId, {
-      paths: dinoData.paths,
-      width: dinoData.width,
-      height: dinoData.height,
-    });
-
-    // Scale dino to fit canvas nicely
-    const scale = Math.min(
-      (CANVAS_WIDTH * 0.7) / dinoData.width,
-      (CANVAS_HEIGHT * 0.7) / dinoData.height
-    );
-
-    this._dinoSprite = new Sprite({
-      textureId,
-      x: CANVAS_WIDTH / 2,
-      y: this._dinoBaseY,
-      width: dinoData.width * scale,
-      height: dinoData.height * scale,
-      zIndex: 5,
-      label: 'dino-' + dinoId,
-      anchorX: 0.5,
-      anchorY: 0.5,
-    });
-
-    this._scene.add(this._dinoSprite);
-    this._currentDinoId = dinoId;
-
-    console.log('[DINO-DEBUG] Dino loaded:', dinoId, 'sprite:', {
-      id: this._dinoSprite.id,
-      textureId: this._dinoSprite.textureId,
-      x: this._dinoSprite.x,
-      y: this._dinoSprite.y,
-      width: this._dinoSprite.width,
-      height: this._dinoSprite.height,
-      visible: this._dinoSprite.visible,
-      zIndex: this._dinoSprite.zIndex,
-    });
-    console.log('[DINO-DEBUG] Scene sprites:', this._scene.size);
-    console.log('[DINO-DEBUG] TextureManager has bitmap:', this._textureManager.has(textureId), 'bitmap:', !!this._textureManager.getBitmap(textureId));
-    console.log('[DINO-DEBUG] Renderer mode:', this._renderer.mode, 'running:', this._renderer._running);
-
-    // Set up idle bounce animation
-    this._renderer.onFrame = (timestamp) => {
+    try {
+      // Remove old dino sprite
       if (this._dinoSprite) {
-        const bounce = Math.sin(timestamp * IDLE_BOUNCE_SPEED) * IDLE_BOUNCE_AMPLITUDE;
-        const newY = this._dinoBaseY + bounce;
-        this._dinoSprite.setPosition(this._dinoSprite.x, newY);
-
-        // Also bounce clothing sprites in sync
-        for (const [itemId, sprite] of this._clothingSprites) {
-          sprite.setPosition(sprite.x, sprite._baseY + bounce);
-          // Bounce slot2 sprite too
-          if (sprite._slot2Sprite) {
-            sprite._slot2Sprite.setPosition(
-              sprite._slot2Sprite.x,
-              sprite._slot2Sprite._baseY + bounce
-            );
-          }
-        }
-
-        this._scene.markDirty();
+        this._scene.removeSprite(this._dinoSprite);
+        this._renderer.releaseSpriteResources(this._dinoSprite.id);
+        this._dinoSprite = null;
       }
-    };
 
-    this._scene.markDirty();
+      this._clearAllClothingSprites();
+
+      const dinoData = DINO_PATHS[dinoId];
+      if (!dinoData) {
+        console.error('[DINO-RENDER] No DINO_PATHS data for:', dinoId);
+        return;
+      }
+
+      // Load dino texture (may already be cached from preload)
+      const textureId = 'dino-' + dinoId;
+      await this._textureManager.loadSVG(textureId, {
+        paths: dinoData.paths,
+        width: dinoData.width,
+        height: dinoData.height,
+      });
+
+      // Scale dino to fit canvas nicely
+      const scale = Math.min(
+        (CANVAS_WIDTH * 0.7) / dinoData.width,
+        (CANVAS_HEIGHT * 0.7) / dinoData.height
+      );
+
+      this._dinoSprite = new Sprite({
+        textureId,
+        x: CANVAS_WIDTH / 2,
+        y: this._dinoBaseY,
+        width: dinoData.width * scale,
+        height: dinoData.height * scale,
+        zIndex: 5,
+        label: 'dino-' + dinoId,
+        anchorX: 0.5,
+        anchorY: 0.5,
+      });
+
+      this._scene.add(this._dinoSprite);
+      this._currentDinoId = dinoId;
+
+      console.log('[DINO-DEBUG] Dino loaded:', dinoId, 'sprite:', {
+        id: this._dinoSprite.id,
+        textureId: this._dinoSprite.textureId,
+        x: this._dinoSprite.x,
+        y: this._dinoSprite.y,
+        width: this._dinoSprite.width,
+        height: this._dinoSprite.height,
+        visible: this._dinoSprite.visible,
+        zIndex: this._dinoSprite.zIndex,
+      });
+      console.log('[DINO-DEBUG] Scene sprites:', this._scene.size);
+      console.log('[DINO-DEBUG] TextureManager has bitmap:', this._textureManager.has(textureId), 'bitmap:', !!this._textureManager.getBitmap(textureId));
+      console.log('[DINO-DEBUG] Renderer mode:', this._renderer.mode, 'running:', this._renderer._running);
+
+      // Set up idle bounce animation
+      this._renderer.onFrame = (timestamp) => {
+        if (this._dinoSprite) {
+          const bounce = Math.sin(timestamp * IDLE_BOUNCE_SPEED) * IDLE_BOUNCE_AMPLITUDE;
+          const newY = this._dinoBaseY + bounce;
+          this._dinoSprite.setPosition(this._dinoSprite.x, newY);
+
+          // Also bounce clothing sprites in sync
+          for (const [itemId, sprite] of this._clothingSprites) {
+            sprite.setPosition(sprite.x, sprite._baseY + bounce);
+            // Bounce slot2 sprite too
+            if (sprite._slot2Sprite) {
+              sprite._slot2Sprite.setPosition(
+                sprite._slot2Sprite.x,
+                sprite._slot2Sprite._baseY + bounce
+              );
+            }
+          }
+
+          this._scene.markDirty();
+        }
+      };
+
+      this._scene.markDirty();
+    } catch (err) {
+      console.error('[DINO-RENDER] _loadDino failed for dinoId=' + dinoId + ':', err);
+    }
   }
 
   /**
@@ -270,6 +281,10 @@ export class DressingScreen {
   }
 
   onEnter() {
+    // Re-configure the rendering context now that the canvas is visible.
+    // The canvas was display:none when initGPUContext() first ran, so
+    // WebGPU's getCurrentTexture() would have returned a zero-size texture.
+    this._renderer.reconfigure();
     this._renderer.start();
     this._scene.markDirty();
   }
