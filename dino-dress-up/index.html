@@ -8,7 +8,10 @@
 </head>
 <body>
 
-  <!-- Loading Overlay -->
+  <!-- =====================================================================
+       LOADING OVERLAY
+       Shown while WebGPU initialises and assets are fetched.
+  ===================================================================== -->
   <div id="loading-overlay" class="loading-overlay" aria-live="polite" aria-label="Loading game">
     <div class="loading-content">
       <div class="loading-dino-icon" aria-hidden="true">🦕</div>
@@ -20,22 +23,45 @@
     </div>
   </div>
 
-  <!-- No WebGPU Fallback -->
+  <!-- =====================================================================
+       NO-WEBGPU FALLBACK
+       Shown when navigator.gpu is unavailable.
+       Hidden by default; toggled via JS.
+  ===================================================================== -->
   <div id="no-webgpu" class="no-webgpu hidden" role="alert">
     <div class="no-webgpu-content">
       <span class="no-webgpu-icon" aria-hidden="true">😢</span>
       <h2>WebGPU Not Supported</h2>
-      <p>Your browser does not support <strong>WebGPU</strong>.</p>
-      <p>Please try <a href="https://www.google.com/chrome/" target="_blank" rel="noopener">Chrome 113+</a> or <a href="https://www.microsoft.com/edge" target="_blank" rel="noopener">Edge 113+</a>.</p>
+      <p>
+        Your browser or device does not support <strong>WebGPU</strong>, which
+        powers the Dino Dress-Up graphics engine.
+      </p>
+      <p>
+        Please try a recent version of
+        <a href="https://www.google.com/chrome/" target="_blank" rel="noopener">Chrome</a>,
+        <a href="https://www.microsoft.com/edge" target="_blank" rel="noopener">Edge</a>, or
+        <a href="https://www.mozilla.org/firefox/" target="_blank" rel="noopener">Firefox Nightly</a>
+        with WebGPU enabled.
+      </p>
       <button class="btn btn-primary" onclick="location.reload()">Try Again</button>
     </div>
   </div>
 
-  <!-- App Root -->
+  <!-- =====================================================================
+       APP ROOT
+       All interactive UI lives here. Hidden until loading completes.
+  ===================================================================== -->
   <div id="app" class="app hidden">
 
-    <!-- SCREEN: DINO SELECTION -->
-    <section id="screen-selection" class="screen screen-selection" aria-label="Choose your dinosaur">
+    <!-- =================================================================
+         SCREEN: DINO SELECTION
+         Players pick which dinosaur they want to dress up.
+    ================================================================= -->
+    <section
+      id="screen-selection"
+      class="screen screen-selection"
+      aria-label="Choose your dinosaur"
+    >
       <header class="selection-header">
         <h1 class="selection-title">
           <span class="title-emoji" aria-hidden="true">🦖</span>
@@ -45,8 +71,14 @@
         <p class="selection-subtitle">Pick your dino to get started!</p>
       </header>
 
-      <div id="dino-card-grid" class="dino-card-grid" role="list" aria-label="Dinosaur options">
-        <!-- DinoPreviewCard x3 inserted by JS -->
+      <!-- Dino preview cards are injected here by DinoPreviewCard components -->
+      <div
+        id="dino-card-grid"
+        class="dino-card-grid"
+        role="list"
+        aria-label="Dinosaur options"
+      >
+        <!-- DinoPreviewCard × 3 inserted by JS -->
       </div>
 
       <footer class="selection-footer">
@@ -54,52 +86,113 @@
       </footer>
     </section>
 
-    <!-- SCREEN: DRESSING ROOM -->
-    <section id="screen-dressing" class="screen screen-dressing hidden" aria-label="Dressing room">
+    <!-- =================================================================
+         SCREEN: DRESSING ROOM
+         Main game view: WebGPU canvas + sidebar + toolbar.
+    ================================================================= -->
+    <section
+      id="screen-dressing"
+      class="screen screen-dressing hidden"
+      aria-label="Dressing room"
+    >
 
-      <!-- Toolbar -->
+      <!-- Top toolbar: Back, dino name, Clear All, Randomize, Done -->
       <div id="toolbar" class="toolbar" role="toolbar" aria-label="Dressing controls">
-        <button data-action="back" class="btn btn-secondary btn-sm" aria-label="Go back to dino selection">← Back</button>
-        <span id="toolbar-dino-name" class="toolbar-dino-name"></span>
-        <div class="toolbar-spacer"></div>
-        <button data-action="clear" class="btn btn-secondary btn-sm" aria-label="Remove all clothing">Clear All</button>
-        <button data-action="randomize" class="btn btn-accent btn-sm" aria-label="Apply a random outfit">🎲 Randomize</button>
-        <button data-action="done" class="btn btn-primary btn-sm" aria-label="Finish dressing">Done! ✨</button>
+        <!-- Toolbar component injects buttons here -->
       </div>
 
-      <!-- Main content: canvas + sidebar -->
+      <!-- Main content area: canvas + sidebar -->
       <div class="dressing-body">
 
-        <!-- Canvas Area -->
+        <!-- ---------------------------------------------------------
+             CANVAS AREA
+             The WebGPU canvas lives inside a styled wrapper so we can
+             add shadow, border-radius, and a subtle grid background.
+        --------------------------------------------------------- -->
         <div class="canvas-area">
           <div class="canvas-wrapper" id="canvas-wrapper">
-            <canvas id="dino-canvas" width="800" height="800" aria-label="Dinosaur dress-up canvas" tabindex="0"></canvas>
-            <div id="canvas-drop-highlight" class="canvas-drop-highlight hidden" aria-hidden="true"></div>
-            <div id="confetti-layer" class="confetti-layer" aria-hidden="true"></div>
-          </div>
 
+            <!-- WebGPU render target -->
+            <canvas
+              id="dino-canvas"
+              width="800"
+              height="800"
+              aria-label="Dinosaur dress-up canvas"
+              tabindex="0"
+            ></canvas>
+
+            <!-- Drag-over highlight ring (shown during item drag) -->
+            <div id="canvas-drop-highlight" class="canvas-drop-highlight hidden" aria-hidden="true"></div>
+
+            <!-- Confetti layer (DOM confetti particles spawn here) -->
+            <div id="confetti-layer" class="confetti-layer" aria-hidden="true"></div>
+
+          </div><!-- /.canvas-wrapper -->
+
+          <!-- Quick stats bar below the canvas -->
           <div class="canvas-stats" aria-live="polite">
             <span id="stat-dino-name" class="stat-dino-name"></span>
             <span class="stat-divider" aria-hidden="true">·</span>
             <span id="stat-item-count" class="stat-item-count">0 items worn</span>
           </div>
-        </div>
+        </div><!-- /.canvas-area -->
 
-        <!-- Sidebar -->
+        <!-- ---------------------------------------------------------
+             SIDEBAR
+             Category tabs + scrollable item grid.
+        --------------------------------------------------------- -->
         <aside id="sidebar" class="sidebar" aria-label="Clothing items">
-          <nav id="category-tabs" class="category-tabs" role="tablist" aria-label="Clothing categories"></nav>
-          <div id="item-grid" class="item-grid" role="tabpanel" aria-label="Clothing items in selected category"></div>
-          <div class="sidebar-footer">
-            <span id="sidebar-applied-count" class="sidebar-applied-count" aria-live="polite">0 items applied</span>
-            <button id="sidebar-clear-btn" class="btn btn-ghost btn-sm" aria-label="Clear all clothing items">Clear All</button>
+
+          <!-- Category tab strip -->
+          <nav
+            id="category-tabs"
+            class="category-tabs"
+            role="tablist"
+            aria-label="Clothing categories"
+          >
+            <!-- CategoryTab components inserted by JS -->
+          </nav>
+
+          <!-- Scrollable item grid -->
+          <div
+            id="item-grid"
+            class="item-grid"
+            role="tabpanel"
+            aria-label="Clothing items in selected category"
+          >
+            <!-- ItemThumbnail components inserted by JS -->
           </div>
-        </aside>
 
-      </div>
-    </section>
+          <!-- Sidebar footer: applied count + clear button shortcut -->
+          <div class="sidebar-footer">
+            <span id="sidebar-applied-count" class="sidebar-applied-count" aria-live="polite">
+              0 items applied
+            </span>
+            <button
+              id="sidebar-clear-btn"
+              class="btn btn-ghost btn-sm"
+              aria-label="Clear all clothing items"
+            >
+              Clear All
+            </button>
+          </div>
 
-    <!-- SCREEN: FINISHED -->
-    <section id="screen-finished" class="screen screen-finished hidden" aria-label="Your finished look">
+        </aside><!-- /#sidebar -->
+
+      </div><!-- /.dressing-body -->
+
+    </section><!-- /#screen-dressing -->
+
+    <!-- =================================================================
+         SCREEN: FINISHED
+         Shown after the player clicks "Done!" — celebrate their outfit!
+    ================================================================= -->
+    <section
+      id="screen-finished"
+      class="screen screen-finished hidden"
+      aria-label="Your finished look"
+    >
+
       <header class="finished-header">
         <h1 class="finished-title">
           <span class="title-emoji" aria-hidden="true">🎉</span>
@@ -109,28 +202,75 @@
         <p class="finished-subtitle">What a stylish dinosaur!</p>
       </header>
 
+      <!-- Snapshot of the finished outfit (shared canvas reused at higher res) -->
       <div class="finished-canvas-area">
         <div class="finished-canvas-wrapper">
-          <canvas id="finished-canvas" width="800" height="800" aria-label="Your finished outfit"></canvas>
+          <canvas
+            id="finished-canvas"
+            width="800"
+            height="800"
+            aria-label="Your dinosaur's finished outfit"
+          ></canvas>
         </div>
       </div>
 
+      <!-- Action buttons -->
       <div class="finished-actions" role="group" aria-label="What would you like to do?">
-        <button id="btn-save-image" class="btn btn-primary" aria-label="Save picture">📸 Save Picture</button>
-        <button id="btn-dress-again" class="btn btn-accent" aria-label="Dress again">👗 Dress Again</button>
-        <button id="btn-new-dino" class="btn btn-secondary" aria-label="Pick a different dinosaur">🦖 New Dino</button>
-      </div>
 
+        <button
+          id="btn-save-image"
+          data-action="save"
+          class="btn btn-primary"
+          aria-label="Save a picture of your dinosaur"
+        >
+          📸 Save Picture
+        </button>
+
+        <button
+          id="btn-dress-again"
+          data-action="dress-again"
+          class="btn btn-accent"
+          aria-label="Go back and change the outfit"
+        >
+          👗 Dress Again
+        </button>
+
+        <button
+          id="btn-new-dino"
+          data-action="new-dino"
+          class="btn btn-secondary"
+          aria-label="Pick a different dinosaur"
+        >
+          🦖 New Dino
+        </button>
+
+      </div><!-- /.finished-actions -->
+
+      <!-- Confetti layer for the celebration burst -->
       <div id="finished-confetti" class="confetti-layer" aria-hidden="true"></div>
-    </section>
 
-  </div>
+    </section><!-- /#screen-finished -->
 
+  </div><!-- /#app -->
+
+  <!-- =====================================================================
+       ENTRY POINT
+       type="module" — browsers that don't support modules also won't
+       support WebGPU, so the fallback above covers both cases.
+  ===================================================================== -->
   <script type="module" src="src/main.js"></script>
 
+  <!-- Inline noscript notice -->
   <noscript>
-    <div style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#fff8f0;font-family:sans-serif;text-align:center;padding:2rem;z-index:9999;">
-      <p><strong>Dino Dress-Up requires JavaScript.</strong><br/>Please enable JavaScript and reload.</p>
+    <div style="
+      position:fixed; inset:0; display:flex; align-items:center;
+      justify-content:center; background:#fff8f0; font-family:sans-serif;
+      text-align:center; padding:2rem; z-index:9999;
+    ">
+      <p>
+        <strong>Dino Dress-Up requires JavaScript.</strong><br />
+        Please enable JavaScript in your browser and reload the page.
+      </p>
     </div>
   </noscript>
 
