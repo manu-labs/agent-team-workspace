@@ -279,7 +279,11 @@ export class SelectScreen {
     canvas.height = PREVIEW_SIZE;
 
     const ctx = canvas.getContext('2d');
-    if (!ctx || !pathData.paths) return canvas;
+    if (!ctx || !pathData.paths) {
+      console.warn('[DINO-DEBUG] _createPreviewCanvas: no ctx or no paths for', dinoId, 'ctx:', !!ctx, 'paths:', !!pathData.paths);
+      return canvas;
+    }
+    console.log('[DINO-DEBUG] Drawing preview for', dinoId, '— paths:', pathData.paths.length, 'size:', pathData.width, 'x', pathData.height);
 
     const scaleX = PREVIEW_SIZE / pathData.width;
     const scaleY = PREVIEW_SIZE / pathData.height;
@@ -318,6 +322,16 @@ export class SelectScreen {
     }
 
     ctx.restore();
+
+    // Debug: check if anything was actually drawn
+    try {
+      const imgData = ctx.getImageData(0, 0, PREVIEW_SIZE, PREVIEW_SIZE);
+      const nonZero = imgData.data.some(v => v > 0);
+      console.log('[DINO-DEBUG] Preview canvas for', dinoId, '— has pixels:', nonZero, 'canvas:', canvas.width, 'x', canvas.height);
+    } catch (e) {
+      console.warn('[DINO-DEBUG] Could not read preview canvas pixels:', e.message);
+    }
+
     return canvas;
   }
 
@@ -363,3 +377,4 @@ export class SelectScreen {
     selectDino(dinoId);
   }
 }
+
