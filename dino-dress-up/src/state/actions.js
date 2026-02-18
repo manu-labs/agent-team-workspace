@@ -240,3 +240,4 @@ export function setLoadingProgress(progress, message) {
 export function setRenderMode(mode) {
   store.setState({ renderMode: mode }, "setRenderMode");
 }
+
