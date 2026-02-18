@@ -55,7 +55,8 @@ dino-dress-up/
 
 The game deploys automatically via GitHub Actions on every push to main that modifies the dino-dress-up/ folder.
 
-The deployment workflow is active at `.github/workflows/deploy-dino-dress-up.yml`.
+The deployment workflow is active at .github/workflows/deploy-dino-dress-up.yml.
+GitHub Pages source is set to: GitHub Actions.
 
 ### How it works
 
@@ -66,7 +67,7 @@ The deployment workflow is active at `.github/workflows/deploy-dino-dress-up.yml
 ### GitHub Pages Settings
 
 In the repository settings (Settings > Pages):
-- Source: GitHub Actions
+- Source: GitHub Actions (enabled)
 - HTTPS: Enforced (required for WebGPU)
 
 ### Why GitHub Actions instead of direct branch deploy?
