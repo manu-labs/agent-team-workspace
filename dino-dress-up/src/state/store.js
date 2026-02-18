@@ -187,3 +187,4 @@ export class Store {
 
 /** The application-wide store singleton. */
 export const store = new Store();
+
