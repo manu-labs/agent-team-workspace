@@ -4,7 +4,7 @@ A WebGPU-powered dinosaur dressing game! Choose from 3 adorable dinosaur charact
 
 ## Play Now
 
-Live URL: https://manu-labs.github.io/agent-team-workspace/
+**Live URL:** https://manu-labs.github.io/agent-team-workspace/
 
 Requires a WebGPU-capable browser: Chrome 113+, Edge 113+, or Chrome on Android 113+
 
@@ -48,24 +48,22 @@ dino-dress-up/
     assets/               - Programmatic SVG asset data
     utils/                - Utility functions
   deployment/
-    github-pages-workflow.yml  - GitHub Actions workflow template
+    github-pages-workflow.yml  - GitHub Actions workflow reference
   README.md
 
 ## Deployment (GitHub Pages)
 
 The game deploys automatically via GitHub Actions on every push to main that modifies the dino-dress-up/ folder.
 
-### GitHub Actions Workflow
+The deployment workflow is active at `.github/workflows/deploy-dino-dress-up.yml`.
 
-The workflow template is at deployment/github-pages-workflow.yml.
-Copy it to .github/workflows/deploy-dino-dress-up.yml to activate.
+### How it works
 
-What it does:
 1. Triggers on push to main (only when dino-dress-up/** files change) and on manual dispatch
 2. Uploads the dino-dress-up/ folder as the Pages artifact (served at site root)
 3. Deploys to GitHub Pages via the official actions/deploy-pages@v4 action
 
-### GitHub Pages Settings Required
+### GitHub Pages Settings
 
 In the repository settings (Settings > Pages):
 - Source: GitHub Actions
