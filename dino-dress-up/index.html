@@ -258,6 +258,41 @@
        type="module" — browsers that don't support modules also won't
        support WebGPU, so the fallback above covers both cases.
   ===================================================================== -->
+  <!-- Pre-module error handler — catches errors during ES module loading -->
+  <script>
+    window.__DINO_BOOT_TIME = Date.now();
+    window.onerror = function(msg, src, line, col, err) {
+      console.error('[DINO PRE-MODULE ERROR]', msg, src, line, col, err);
+      var status = document.getElementById('loading-status');
+      if (status) {
+        status.textContent = 'Error: ' + msg;
+        status.style.color = '#e84a2a';
+      }
+    };
+    window.addEventListener('unhandledrejection', function(e) {
+      console.error('[DINO PRE-MODULE REJECTION]', e.reason);
+      var status = document.getElementById('loading-status');
+      if (status) {
+        status.textContent = 'Error: ' + (e.reason && e.reason.message ? e.reason.message : String(e.reason));
+        status.style.color = '#e84a2a';
+      }
+    });
+    // Safety timeout: if the app hasn't loaded after 15 seconds, show a debug message
+    setTimeout(function() {
+      var overlay = document.getElementById('loading-overlay');
+      var status = document.getElementById('loading-status');
+      if (overlay && !overlay.classList.contains('hidden') && status) {
+        var errors = window.__DINO_ERRORS || [];
+        if (errors.length > 0) {
+          status.textContent = 'Error: ' + errors[0].msg;
+        } else {
+          status.textContent = 'Loading is taking longer than expected. Check browser console (F12) for errors.';
+        }
+        status.style.color = '#e84a2a';
+      }
+    }, 15000);
+    console.log('[DINO] Pre-module script loaded at', new Date().toISOString());
+  </script>
   <script type="module" src="src/main.js"></script>
 
   <!-- Inline noscript notice -->
@@ -276,3 +311,4 @@
 
 </body>
 </html>
+
