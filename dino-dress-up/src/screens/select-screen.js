@@ -1,146 +1,281 @@
 /**
  * select-screen.js - Dinosaur selection screen controller
+ * ──────────────────────────────────────────────────────────────────────────
+ * Bridges the state management layer to the dinosaur selection UI.
  *
- * Manages the selection screen where the player picks one of
- * the three dinosaurs to dress up. Renders mini Canvas2D
- * previews of each dino using the SVG path data.
+ * Responsibilities:
+ *  - Renders the selection screen with a title, subtitle, and a grid of
+ *    DinoPreviewCard instances (one per dinosaur in DINO_PATHS)
+ *  - Delegates dino selection to the `selectDino` action
+ *  - Manages its own DOM lifecycle (show / hide / destroy)
+ *
+ * The selection screen is the first screen the player sees. Once a
+ * dinosaur is chosen, the store transitions to the "dressing" screen
+ * and this controller hides itself.
+ *
+ * @module screens/select-screen
+ * ──────────────────────────────────────────────────────────────────────────
  */
 
-import { store } from "../state/store.js";
-import { selectDino } from "../state/actions.js";
-import { ASSET_MANIFEST } from "../assets/asset-manifest.js";
-import { DINO_PATHS } from "../assets/dino-paths.js";
+'use strict';
+
+import { store }                            from '../state/store.js';
+import { selectDino }                       from '../state/actions.js';
+import { DinoPreviewCard, buildDinoCards }  from '../ui/dino-preview-card.js';
+import { DINO_PATHS }                       from '../assets/dino-paths.js';
+import { ASSET_MANIFEST }                   from '../assets/asset-manifest.js';
+import { createElement, $, clearChildren }  from '../utils/dom-helpers.js';
+import { CANVAS_WIDTH, CANVAS_HEIGHT }      from '../utils/constants.js';
+
+// ─── SelectScreen Class ───────────────────────────────────────────────────────
 
 export class SelectScreen {
   /**
-   * @param {Object} options
-   * @param {HTMLElement} options.container - The selection screen container
+   * Create a new SelectScreen controller.
+   *
+   * Finds (or lazily creates) the `.screen-selection` container element
+   * in the DOM. All selection UI is rendered inside this container.
    */
-  constructor({ container }) {
-    this._container = container;
-    this._cardGrid = container.querySelector("#dino-card-grid");
+  constructor() {
+    /** @type {HTMLElement} Root container for the selection screen */
+    this._container = $('.screen-selection') || this._createContainer();
+
+    /** @type {DinoPreviewCard[]} Active card component instances */
+    this._cards = [];
+
+    /** @type {Function|null} Store unsubscribe handle */
+    this._unsubscribe = null;
+
+    /** @type {boolean} Whether the screen is currently visible */
+    this._visible = false;
+  }
+
+  // ── Public API ─────────────────────────────────────────────────────────────
+
+  /**
+   * Show the selection screen.
+   *
+   * Builds the full selection UI: a heading, subtitle text, and a grid
+   * of DinoPreviewCard components. Each card dispatches `selectDino()`
+   * when clicked.
+   */
+  show() {
+    this._destroyCards();
+    clearChildren(this._container);
+
+    // ── Title section ──
+    const header = createElement('header', {
+      className: 'select-header',
+    }, [
+      createElement('h1', {
+        className:   'select-title',
+        textContent: 'Choose Your Dino!',
+      }),
+      createElement('p', {
+        className:   'select-subtitle',
+        textContent: 'Pick a prehistoric pal to dress up.',
+      }),
+    ]);
+
+    // ── Card grid ──
+    const grid = createElement('div', {
+      className: 'dino-card-grid',
+      role:      'list',
+      'aria-label': 'Available dinosaurs',
+    });
+
+    // Build one card per dinosaur entry.
+    // Prefer the manifest's dinosaurs array for ordering; fall back to
+    // iterating DINO_PATHS keys directly.
+    const dinoEntries = this._getDinoEntries();
+
+    for (const dinoMeta of dinoEntries) {
+      const pathData = DINO_PATHS[dinoMeta.id];
+      if (!pathData) continue;
+
+      // Create a mini preview canvas for the card
+      const previewCanvas = this._createPreviewCanvas(dinoMeta.id, pathData);
+
+      const card = new DinoPreviewCard(
+        {
+          id:          dinoMeta.id,
+          name:        pathData.name || dinoMeta.name || dinoMeta.id,
+          subtitle:    pathData.subtitle || dinoMeta.subtitle || '',
+          description: this._getDescription(dinoMeta.id),
+          accentColor: this._getAccentColor(dinoMeta.id),
+        },
+        previewCanvas,
+        {
+          onClick: (dinoId) => this._handleSelect(dinoId),
+        },
+      );
+
+      grid.appendChild(card.element);
+      this._cards.push(card);
+    }
+
+    this._container.appendChild(header);
+    this._container.appendChild(grid);
+
+    // Make the container visible
+    this._container.classList.remove('hidden');
+    this._visible = true;
+  }
+
+  /**
+   * Hide the selection screen.
+   *
+   * Adds the `hidden` CSS class to the container. Does not destroy
+   * card instances — call `destroy()` for full cleanup.
+   */
+  hide() {
+    this._container.classList.add('hidden');
+    this._visible = false;
+  }
+
+  /**
+   * Clean up all event listeners, card instances, and subscriptions.
+   * Call this when the screen is being permanently removed.
+   */
+  destroy() {
+    this._destroyCards();
+
+    if (this._unsubscribe) {
+      this._unsubscribe();
+      this._unsubscribe = null;
+    }
+
+    clearChildren(this._container);
+    this._visible = false;
+  }
+
+  // ── Private — Card Management ──────────────────────────────────────────────
+
+  /**
+   * Destroy all active DinoPreviewCard instances.
+   * @private
+   */
+  _destroyCards() {
+    for (const card of this._cards) {
+      try {
+        card.destroy();
+      } catch (err) {
+        console.error('SelectScreen: error destroying card:', err);
+      }
+    }
     this._cards = [];
   }
 
-  /** Initialize the selection screen. Creates dino preview cards. */
-  init() {
-    if (\!this._cardGrid) return;
+  // ── Private — Data Helpers ─────────────────────────────────────────────────
 
-    const dinos = ASSET_MANIFEST.dinosaurs || [
-      { id: "trex", name: "Rex", subtitle: "T-Rex" },
-      { id: "triceratops", name: "Cera", subtitle: "Triceratops" },
-      { id: "stegosaurus", name: "Steggy", subtitle: "Stegosaurus" },
-    ];
-
-    for (const dino of dinos) {
-      const card = this._createCard(dino);
-      this._cardGrid.appendChild(card);
-      this._cards.push(card);
+  /**
+   * Return an ordered array of dino metadata objects.
+   *
+   * Uses ASSET_MANIFEST.dinosaurs when available (for consistent ordering),
+   * otherwise falls back to DINO_PATHS keys.
+   *
+   * @private
+   * @returns {Array<{id: string, name: string, subtitle: string}>}
+   */
+  _getDinoEntries() {
+    if (ASSET_MANIFEST.dinosaurs && ASSET_MANIFEST.dinosaurs.length > 0) {
+      return [...ASSET_MANIFEST.dinosaurs].sort(
+        (a, b) => (a.order ?? 0) - (b.order ?? 0),
+      );
     }
+    return Object.keys(DINO_PATHS).map((id) => ({
+      id,
+      name:     DINO_PATHS[id].name || id,
+      subtitle: DINO_PATHS[id].subtitle || '',
+    }));
   }
 
   /**
-   * Create a dino preview card element.
-   * @param {Object} dino - { id, name, subtitle }
-   * @returns {HTMLElement}
-   */
-  _createCard(dino) {
-    const card = document.createElement("div");
-    card.className = "dino-card";
-    card.setAttribute("role", "listitem");
-    card.setAttribute("tabindex", "0");
-    card.setAttribute("aria-label", "Select " + dino.name + " the " + dino.subtitle);
-    card.dataset.dinoId = dino.id;
-
-    // Dino preview area
-    const preview = document.createElement("div");
-    preview.className = "dino-preview";
-
-    const canvas = document.createElement("canvas");
-    canvas.width = 160;
-    canvas.height = 160;
-    canvas.className = "dino-preview-canvas";
-    this._renderMiniPreview(canvas, dino.id);
-    preview.appendChild(canvas);
-
-    // Dino info
-    const name = document.createElement("h3");
-    name.className = "dino-name";
-    name.textContent = dino.name;
-
-    const tagline = document.createElement("p");
-    tagline.className = "dino-tagline";
-    const taglines = {
-      trex: "Tiny arms, big style\!",
-      triceratops: "Three horns, infinite charm\!",
-      stegosaurus: "Plates up, dressed to impress\!",
-    };
-    tagline.textContent = taglines[dino.id] || dino.subtitle;
-
-    const selectBtn = document.createElement("button");
-    selectBtn.className = "btn btn-primary dino-select-btn";
-    selectBtn.textContent = "Choose Me\!";
-
-    card.appendChild(preview);
-    card.appendChild(name);
-    card.appendChild(tagline);
-    card.appendChild(selectBtn);
-
-    // Click handler
-    const handleSelect = () => selectDino(dino.id);
-    card.addEventListener("click", handleSelect);
-    card.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault();
-        handleSelect();
-      }
-    });
-
-    return card;
-  }
-
-  /**
-   * Render a mini preview of the dino using Canvas2D.
-   * @param {HTMLCanvasElement} canvas
+   * Get a fun description string for a dino.
+   *
+   * @private
    * @param {string} dinoId
+   * @returns {string}
    */
-  _renderMiniPreview(canvas, dinoId) {
-    const dinoData = DINO_PATHS[dinoId];
-    if (\!dinoData) return;
+  _getDescription(dinoId) {
+    const descriptions = {
+      trex:         'Tiny arms, big style! This fearsome fashionista is ready for a makeover.',
+      triceratops:  'Three horns, infinite charm! Cera loves a good accessory.',
+      stegosaurus:  'Plates up, dressed to impress! Steggy is the runway star.',
+    };
+    return descriptions[dinoId] || 'A stylish dinosaur awaiting your creative touch.';
+  }
 
-    const ctx = canvas.getContext("2d");
-    if (\!ctx) return;
+  /**
+   * Get the accent colour for a dino card.
+   *
+   * @private
+   * @param {string} dinoId
+   * @returns {string} CSS colour value
+   */
+  _getAccentColor(dinoId) {
+    const colors = {
+      trex:         '#4caf50',
+      triceratops:  '#ff9800',
+      stegosaurus:  '#2196f3',
+    };
+    return colors[dinoId] || '#4caf50';
+  }
 
-    const scaleX = canvas.width / dinoData.width;
-    const scaleY = canvas.height / dinoData.height;
-    const scale = Math.min(scaleX, scaleY) * 0.85;
+  // ── Private — Canvas Preview ───────────────────────────────────────────────
 
-    const offsetX = (canvas.width - dinoData.width * scale) / 2;
-    const offsetY = (canvas.height - dinoData.height * scale) / 2;
+  /**
+   * Create a mini canvas element with a rasterised preview of the dino.
+   *
+   * The canvas is sized to fit neatly inside a DinoPreviewCard. The dino
+   * SVG paths are scaled to fill 85% of the canvas area.
+   *
+   * @private
+   * @param {string} dinoId
+   * @param {Object} pathData - Entry from DINO_PATHS (width, height, paths)
+   * @returns {HTMLCanvasElement}
+   */
+  _createPreviewCanvas(dinoId, pathData) {
+    const PREVIEW_SIZE = 180;
+    const canvas = createElement('canvas', {
+      className: 'dino-preview-canvas',
+    });
+    canvas.width  = PREVIEW_SIZE;
+    canvas.height = PREVIEW_SIZE;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx || !pathData.paths) return canvas;
+
+    const scaleX = PREVIEW_SIZE / pathData.width;
+    const scaleY = PREVIEW_SIZE / pathData.height;
+    const scale  = Math.min(scaleX, scaleY) * 0.85;
+
+    const offsetX = (PREVIEW_SIZE - pathData.width * scale) / 2;
+    const offsetY = (PREVIEW_SIZE - pathData.height * scale) / 2;
 
     ctx.save();
     ctx.translate(offsetX, offsetY);
     ctx.scale(scale, scale);
 
-    for (const pathData of dinoData.paths) {
+    for (const segment of pathData.paths) {
       ctx.save();
 
-      const path = new Path2D(pathData.d);
+      const path = new Path2D(segment.d);
 
-      if (pathData.opacity \!== undefined) {
-        ctx.globalAlpha = pathData.opacity;
+      if (segment.opacity !== undefined) {
+        ctx.globalAlpha = segment.opacity;
       }
 
-      if (pathData.fill && pathData.fill \!== "none") {
-        ctx.fillStyle = pathData.fill;
+      if (segment.fill && segment.fill !== 'none') {
+        ctx.fillStyle = segment.fill;
         ctx.fill(path);
       }
 
-      if (pathData.stroke && pathData.stroke \!== "none") {
-        ctx.strokeStyle = pathData.stroke;
-        ctx.lineWidth = pathData.strokeWidth || 1;
-        ctx.lineCap = "round";
-        ctx.lineJoin = "round";
+      if (segment.stroke && segment.stroke !== 'none') {
+        ctx.strokeStyle = segment.stroke;
+        ctx.lineWidth   = segment.strokeWidth || 1;
+        ctx.lineCap     = 'round';
+        ctx.lineJoin    = 'round';
         ctx.stroke(path);
       }
 
@@ -148,13 +283,48 @@ export class SelectScreen {
     }
 
     ctx.restore();
+    return canvas;
   }
 
-  onEnter() { /* could animate cards in */ }
-  onExit() { /* clean up if needed */ }
+  // ── Private — Container Creation ───────────────────────────────────────────
 
-  destroy() {
-    this._cards = [];
-    if (this._cardGrid) this._cardGrid.innerHTML = "";
+  /**
+   * Create the `.screen-selection` container element if it does not
+   * already exist in the DOM.
+   *
+   * @private
+   * @returns {HTMLElement}
+   */
+  _createContainer() {
+    const container = createElement('section', {
+      className:    'screen-selection hidden',
+      'aria-label': 'Dinosaur selection screen',
+    });
+
+    const app = $('#app') || document.body;
+    app.appendChild(container);
+
+    return container;
+  }
+
+  // ── Private — Event Handlers ───────────────────────────────────────────────
+
+  /**
+   * Handle a dino card selection.
+   *
+   * Marks the selected card visually, then dispatches the `selectDino`
+   * action to transition the game state to the dressing screen.
+   *
+   * @private
+   * @param {string} dinoId
+   */
+  _handleSelect(dinoId) {
+    // Visually mark the chosen card as selected
+    for (const card of this._cards) {
+      card.setSelected(card.dinoId === dinoId);
+    }
+
+    // Dispatch the state action (transitions to dressing screen)
+    selectDino(dinoId);
   }
 }
