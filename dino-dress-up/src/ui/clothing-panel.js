@@ -44,7 +44,7 @@
 
 'use strict';
 
-import { $, clearChildren, createElement } from './dom-helpers.js';
+import { $, clearChildren, createElement } from '../utils/dom-helpers.js';
 import { CategoryTab, buildCategoryTabs }  from './category-tab.js';
 import { ItemThumbnail }                   from './item-thumbnail.js';
 import { bounceIn, staggerIn }             from './animations.js';
