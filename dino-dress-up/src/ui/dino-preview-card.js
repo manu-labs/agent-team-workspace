@@ -38,7 +38,7 @@
 
 'use strict';
 
-import { createElement, createSVGElement } from './dom-helpers.js';
+import { createElement, createSVGElement } from '../utils/dom-helpers.js';
 import { glowPulse }                       from './animations.js';
 
 // ─── DinoPreviewCard Class ────────────────────────────────────────────────────
