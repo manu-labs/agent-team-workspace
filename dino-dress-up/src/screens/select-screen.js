@@ -33,12 +33,13 @@ export class SelectScreen {
   /**
    * Create a new SelectScreen controller.
    *
-   * Finds (or lazily creates) the `.screen-selection` container element
-   * in the DOM. All selection UI is rendered inside this container.
+   * @param {Object} [options={}]
+   * @param {HTMLElement} [options.container] - The screen container element.
+   *   Falls back to querying for `.screen-selection` in the DOM.
    */
-  constructor() {
+  constructor(options = {}) {
     /** @type {HTMLElement} Root container for the selection screen */
-    this._container = $('.screen-selection') || this._createContainer();
+    this._container = options.container || $('.screen-selection') || this._createContainer();
 
     /** @type {DinoPreviewCard[]} Active card component instances */
     this._cards = [];
@@ -48,9 +49,40 @@ export class SelectScreen {
 
     /** @type {boolean} Whether the screen is currently visible */
     this._visible = false;
+
+    /** @type {boolean} Whether init() has been called */
+    this._initialized = false;
   }
 
   // ── Public API ─────────────────────────────────────────────────────────────
+
+  /**
+   * Initialize the screen controller.
+   * Called once during app bootstrap to set up subscriptions and
+   * prepare the initial render.
+   */
+  init() {
+    if (this._initialized) return;
+    this._initialized = true;
+
+    // Build the selection UI so it is ready when onEnter() is called
+    this._buildUI();
+  }
+
+  /**
+   * Called by the ScreenManager when this screen becomes active.
+   * Shows the container and refreshes the dino cards.
+   */
+  onEnter() {
+    this.show();
+  }
+
+  /**
+   * Called by the ScreenManager when this screen is being hidden.
+   */
+  onExit() {
+    this.hide();
+  }
 
   /**
    * Show the selection screen.
@@ -60,62 +92,10 @@ export class SelectScreen {
    * when clicked.
    */
   show() {
-    this._destroyCards();
-    clearChildren(this._container);
-
-    // ── Title section ──
-    const header = createElement('header', {
-      className: 'select-header',
-    }, [
-      createElement('h1', {
-        className:   'select-title',
-        textContent: 'Choose Your Dino!',
-      }),
-      createElement('p', {
-        className:   'select-subtitle',
-        textContent: 'Pick a prehistoric pal to dress up.',
-      }),
-    ]);
-
-    // ── Card grid ──
-    const grid = createElement('div', {
-      className: 'dino-card-grid',
-      role:      'list',
-      'aria-label': 'Available dinosaurs',
-    });
-
-    // Build one card per dinosaur entry.
-    // Prefer the manifest's dinosaurs array for ordering; fall back to
-    // iterating DINO_PATHS keys directly.
-    const dinoEntries = this._getDinoEntries();
-
-    for (const dinoMeta of dinoEntries) {
-      const pathData = DINO_PATHS[dinoMeta.id];
-      if (!pathData) continue;
-
-      // Create a mini preview canvas for the card
-      const previewCanvas = this._createPreviewCanvas(dinoMeta.id, pathData);
-
-      const card = new DinoPreviewCard(
-        {
-          id:          dinoMeta.id,
-          name:        pathData.name || dinoMeta.name || dinoMeta.id,
-          subtitle:    pathData.subtitle || dinoMeta.subtitle || '',
-          description: this._getDescription(dinoMeta.id),
-          accentColor: this._getAccentColor(dinoMeta.id),
-        },
-        previewCanvas,
-        {
-          onClick: (dinoId) => this._handleSelect(dinoId),
-        },
-      );
-
-      grid.appendChild(card.element);
-      this._cards.push(card);
+    if (\!this._initialized) {
+      this._buildUI();
+      this._initialized = true;
     }
-
-    this._container.appendChild(header);
-    this._container.appendChild(grid);
 
     // Make the container visible
     this._container.classList.remove('hidden');
@@ -147,6 +127,61 @@ export class SelectScreen {
 
     clearChildren(this._container);
     this._visible = false;
+    this._initialized = false;
+  }
+
+  // ── Private — UI Building ──────────────────────────────────────────────────
+
+  /**
+   * Build the full selection UI inside the container.
+   * @private
+   */
+  _buildUI() {
+    this._destroyCards();
+
+    // Check if the container already has static HTML from index.html
+    const existingGrid = this._container.querySelector('.dino-card-grid');
+    const grid = existingGrid || createElement('div', {
+      className: 'dino-card-grid',
+      role:      'list',
+      'aria-label': 'Available dinosaurs',
+    });
+
+    // Clear any placeholder content from the grid
+    clearChildren(grid);
+
+    // Build one card per dinosaur entry.
+    const dinoEntries = this._getDinoEntries();
+
+    for (const dinoMeta of dinoEntries) {
+      const pathData = DINO_PATHS[dinoMeta.id];
+      if (\!pathData) continue;
+
+      // Create a mini preview canvas for the card
+      const previewCanvas = this._createPreviewCanvas(dinoMeta.id, pathData);
+
+      const card = new DinoPreviewCard(
+        {
+          id:          dinoMeta.id,
+          name:        pathData.name || dinoMeta.name || dinoMeta.id,
+          subtitle:    pathData.subtitle || dinoMeta.subtitle || '',
+          description: this._getDescription(dinoMeta.id),
+          accentColor: this._getAccentColor(dinoMeta.id),
+        },
+        previewCanvas,
+        {
+          onClick: (dinoId) => this._handleSelect(dinoId),
+        },
+      );
+
+      grid.appendChild(card.element);
+      this._cards.push(card);
+    }
+
+    // Append grid if we created a new one
+    if (\!existingGrid) {
+      this._container.appendChild(grid);
+    }
   }
 
   // ── Private — Card Management ──────────────────────────────────────────────
@@ -199,9 +234,9 @@ export class SelectScreen {
    */
   _getDescription(dinoId) {
     const descriptions = {
-      trex:         'Tiny arms, big style! This fearsome fashionista is ready for a makeover.',
-      triceratops:  'Three horns, infinite charm! Cera loves a good accessory.',
-      stegosaurus:  'Plates up, dressed to impress! Steggy is the runway star.',
+      trex:         'Tiny arms, big style\! This fearsome fashionista is ready for a makeover.',
+      triceratops:  'Three horns, infinite charm\! Cera loves a good accessory.',
+      stegosaurus:  'Plates up, dressed to impress\! Steggy is the runway star.',
     };
     return descriptions[dinoId] || 'A stylish dinosaur awaiting your creative touch.';
   }
@@ -244,7 +279,7 @@ export class SelectScreen {
     canvas.height = PREVIEW_SIZE;
 
     const ctx = canvas.getContext('2d');
-    if (!ctx || !pathData.paths) return canvas;
+    if (\!ctx || \!pathData.paths) return canvas;
 
     const scaleX = PREVIEW_SIZE / pathData.width;
     const scaleY = PREVIEW_SIZE / pathData.height;
@@ -262,16 +297,16 @@ export class SelectScreen {
 
       const path = new Path2D(segment.d);
 
-      if (segment.opacity !== undefined) {
+      if (segment.opacity \!== undefined) {
         ctx.globalAlpha = segment.opacity;
       }
 
-      if (segment.fill && segment.fill !== 'none') {
+      if (segment.fill && segment.fill \!== 'none') {
         ctx.fillStyle = segment.fill;
         ctx.fill(path);
       }
 
-      if (segment.stroke && segment.stroke !== 'none') {
+      if (segment.stroke && segment.stroke \!== 'none') {
         ctx.strokeStyle = segment.stroke;
         ctx.lineWidth   = segment.strokeWidth || 1;
         ctx.lineCap     = 'round';
