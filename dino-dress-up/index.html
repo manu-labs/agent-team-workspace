@@ -1,64 +1,210 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Dino Dress-Up 🦖</title>
-  <link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dino Dress-Up!</title>
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div id="app">
-    <!-- Selection Screen -->
-    <div id="select-screen" class="screen active">
-      <h1 class="title">Dino Dress-Up</h1>
-      <p class="subtitle">Choose your dinosaur!</p>
-      <div id="dino-cards" class="dino-cards">
-        <!-- Dino cards injected by JS -->
-      </div>
-    </div>
 
-    <!-- Dressing Room Screen -->
-    <div id="dressing-screen" class="screen">
-      <div class="dressing-layout">
-        <div class="canvas-container">
-          <canvas id="game-canvas" width="800" height="800"></canvas>
-          <div class="canvas-controls">
-            <button id="btn-back" class="btn btn-secondary">← Back</button>
-            <button id="btn-clear" class="btn btn-secondary">Clear All</button>
-            <button id="btn-random" class="btn btn-accent">🎲 Randomize</button>
-            <button id="btn-done" class="btn btn-primary">Done! ✨</button>
-          </div>
-        </div>
-        <div id="clothing-panel" class="clothing-panel">
-          <div id="category-tabs" class="category-tabs">
-            <!-- Category tabs injected by JS -->
-          </div>
-          <div id="clothing-grid" class="clothing-grid">
-            <!-- Clothing items injected by JS -->
-          </div>
-        </div>
+  <!-- =====================================================================
+       LOADING OVERLAY
+       Shown while WebGPU initialises and assets are fetched.
+  ===================================================================== -->
+  <div id="loading-overlay" class="loading-overlay" aria-live="polite" aria-label="Loading game">
+    <div class="loading-content">
+      <div class="loading-dino-icon" aria-hidden="true">🦕</div>
+      <h2 class="loading-title">Dino Dress-Up!</h2>
+      <div class="loading-bar-track">
+        <div id="loading-bar" class="loading-bar"></div>
       </div>
-    </div>
-
-    <!-- Finished Screen -->
-    <div id="finished-screen" class="screen">
-      <h1 class="title">Looking Good! 🎉</h1>
-      <div class="finished-canvas-container">
-        <canvas id="finished-canvas" width="800" height="800"></canvas>
-      </div>
-      <div class="finished-controls">
-        <button id="btn-save" class="btn btn-primary">📸 Save Image</button>
-        <button id="btn-dress-again" class="btn btn-accent">Dress Again</button>
-        <button id="btn-new-dino" class="btn btn-secondary">New Dino</button>
-      </div>
-    </div>
-
-    <!-- WebGPU not supported banner -->
-    <div id="fallback-banner" class="fallback-banner" hidden>
-      ⚠️ WebGPU not available — using Canvas2D fallback. For the best experience, use Chrome 113+.
+      <p id="loading-status" class="loading-status">Starting up…</p>
     </div>
   </div>
 
+  <!-- =====================================================================
+       NO-WEBGPU FALLBACK
+       Shown when navigator.gpu is unavailable.
+       Hidden by default; toggled via JS.
+  ===================================================================== -->
+  <div id="no-webgpu" class="no-webgpu hidden" role="alert">
+    <div class="no-webgpu-content">
+      <span class="no-webgpu-icon" aria-hidden="true">😢</span>
+      <h2>WebGPU Not Supported</h2>
+      <p>
+        Your browser or device does not support <strong>WebGPU</strong>, which
+        powers the Dino Dress-Up graphics engine.
+      </p>
+      <p>
+        Please try a recent version of
+        <a href="https://www.google.com/chrome/" target="_blank" rel="noopener">Chrome</a>,
+        <a href="https://www.microsoft.com/edge" target="_blank" rel="noopener">Edge</a>, or
+        <a href="https://www.mozilla.org/firefox/" target="_blank" rel="noopener">Firefox Nightly</a>
+        with WebGPU enabled.
+      </p>
+      <button class="btn btn-primary" onclick="location.reload()">Try Again</button>
+    </div>
+  </div>
+
+  <!-- =====================================================================
+       APP ROOT
+       All interactive UI lives here. Hidden until loading completes.
+  ===================================================================== -->
+  <div id="app" class="app hidden">
+
+    <!-- =================================================================
+         SCREEN: DINO SELECTION
+         Players pick which dinosaur they want to dress up.
+    ================================================================= -->
+    <section
+      id="screen-selection"
+      class="screen screen-selection"
+      aria-label="Choose your dinosaur"
+    >
+      <header class="selection-header">
+        <h1 class="selection-title">
+          <span class="title-emoji" aria-hidden="true">🦖</span>
+          Dino Dress-Up!
+          <span class="title-emoji" aria-hidden="true">🦕</span>
+        </h1>
+        <p class="selection-subtitle">Pick your dino to get started!</p>
+      </header>
+
+      <!-- Dino preview cards are injected here by DinoPreviewCard components -->
+      <div
+        id="dino-card-grid"
+        class="dino-card-grid"
+        role="list"
+        aria-label="Dinosaur options"
+      >
+        <!-- DinoPreviewCard × 3 inserted by JS -->
+      </div>
+
+      <footer class="selection-footer">
+        <p class="selection-hint">Click a dinosaur to start dressing!</p>
+      </footer>
+    </section>
+
+    <!-- =================================================================
+         SCREEN: DRESSING ROOM
+         Main game view: WebGPU canvas + sidebar + toolbar.
+    ================================================================= -->
+    <section
+      id="screen-dressing"
+      class="screen screen-dressing hidden"
+      aria-label="Dressing room"
+    >
+
+      <!-- Top toolbar: Back, dino name, Clear All, Randomize, Done -->
+      <div id="toolbar" class="toolbar" role="toolbar" aria-label="Dressing controls">
+        <!-- Toolbar component injects buttons here -->
+      </div>
+
+      <!-- Main content area: canvas + sidebar -->
+      <div class="dressing-body">
+
+        <!-- ---------------------------------------------------------
+             CANVAS AREA
+             The WebGPU canvas lives inside a styled wrapper so we can
+             add shadow, border-radius, and a subtle grid background.
+        --------------------------------------------------------- -->
+        <div class="canvas-area">
+          <div class="canvas-wrapper" id="canvas-wrapper">
+
+            <!-- WebGPU render target -->
+            <canvas
+              id="dino-canvas"
+              width="800"
+              height="800"
+              aria-label="Dinosaur dress-up canvas"
+              tabindex="0"
+            ></canvas>
+
+            <!-- Drag-over highlight ring (shown during item drag) -->
+            <div id="canvas-drop-highlight" class="canvas-drop-highlight hidden" aria-hidden="true"></div>
+
+            <!-- Confetti layer (DOM confetti particles spawn here) -->
+            <div id="confetti-layer" class="confetti-layer" aria-hidden="true"></div>
+
+          </div><!-- /.canvas-wrapper -->
+
+          <!-- Quick stats bar below the canvas -->
+          <div class="canvas-stats" aria-live="polite">
+            <span id="stat-dino-name" class="stat-dino-name"></span>
+            <span class="stat-divider" aria-hidden="true">·</span>
+            <span id="stat-item-count" class="stat-item-count">0 items worn</span>
+          </div>
+        </div><!-- /.canvas-area -->
+
+        <!-- ---------------------------------------------------------
+             SIDEBAR
+             Category tabs + scrollable item grid.
+        --------------------------------------------------------- -->
+        <aside id="sidebar" class="sidebar" aria-label="Clothing items">
+
+          <!-- Category tab strip -->
+          <nav
+            id="category-tabs"
+            class="category-tabs"
+            role="tablist"
+            aria-label="Clothing categories"
+          >
+            <!-- CategoryTab components inserted by JS -->
+          </nav>
+
+          <!-- Scrollable item grid -->
+          <div
+            id="item-grid"
+            class="item-grid"
+            role="tabpanel"
+            aria-label="Clothing items in selected category"
+          >
+            <!-- ItemThumbnail components inserted by JS -->
+          </div>
+
+          <!-- Sidebar footer: applied count + clear button shortcut -->
+          <div class="sidebar-footer">
+            <span id="sidebar-applied-count" class="sidebar-applied-count" aria-live="polite">
+              0 items applied
+            </span>
+            <button
+              id="sidebar-clear-btn"
+              class="btn btn-ghost btn-sm"
+              aria-label="Clear all clothing items"
+            >
+              Clear All
+            </button>
+          </div>
+
+        </aside><!-- /#sidebar -->
+
+      </div><!-- /.dressing-body -->
+
+    </section><!-- /#screen-dressing -->
+
+  </div><!-- /#app -->
+
+  <!-- =====================================================================
+       ENTRY POINT
+       type="module" — browsers that don't support modules also won't
+       support WebGPU, so the fallback above covers both cases.
+  ===================================================================== -->
   <script type="module" src="src/main.js"></script>
+
+  <!-- Inline noscript notice -->
+  <noscript>
+    <div style="
+      position:fixed; inset:0; display:flex; align-items:center;
+      justify-content:center; background:#fff8f0; font-family:sans-serif;
+      text-align:center; padding:2rem; z-index:9999;
+    ">
+      <p>
+        <strong>Dino Dress-Up requires JavaScript.</strong><br />
+        Please enable JavaScript in your browser and reload the page.
+      </p>
+    </div>
+  </noscript>
+
 </body>
 </html>
