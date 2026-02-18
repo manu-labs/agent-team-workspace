@@ -1,12 +1,12 @@
 /**
- * actions.js - Action dispatchers and clothing conflict logic
+ * actions.js - Action dispatchers and game logic
  * Part of the Dino Dress-Up state management system
  *
- * Each action function reads the current state, computes the next state,
- * and calls store.set() with the updates. Subscribers are notified
- * automatically.
+ * All state mutations flow through these action functions.
+ * Each action encapsulates the business logic (conflict rules,
+ * validation, etc.) and calls store.setState() with the result.
  *
- * Clothing conflict rules:
+ * Clothing rules:
  * - One item per category (except accessories allows 2)
  * - Skateboard conflicts with all footwear (mutually exclusive)
  */
@@ -15,269 +15,228 @@ import { store } from "./store.js";
 import { ASSET_MANIFEST } from "../assets/asset-manifest.js";
 import { MAX_ITEMS_PER_CATEGORY } from "../utils/constants.js";
 
-// ─── Screen Navigation ──────────────────────────────────────────────────────
+// -- Helper: get clothing item metadata --
 
-/**
- * Select a dinosaur and transition to the dressing screen.
- * @param {"trex"|"triceratops"|"stegosaurus"} dinoId
- */
-export function selectDino(dinoId) {
-  store.batch(() => {
-    store.set({
-      selectedDino: dinoId,
-      currentScreen: "dressing",
-      appliedClothing: [],
-      activeCategory: "hats",
-    });
-  });
-}
-
-/**
- * Navigate to the finished screen.
- */
-export function finishDressing() {
-  store.set({ currentScreen: "finished" });
-}
-
-/**
- * Go back to the dressing screen from the finished screen.
- */
-export function dressAgain() {
-  store.set({ currentScreen: "dressing" });
-}
-
-/**
- * Go back to the selection screen. Clears all clothing.
- */
-export function goToSelection() {
-  store.batch(() => {
-    store.set({
-      currentScreen: "select",
-      selectedDino: null,
-      appliedClothing: [],
-      activeCategory: "hats",
-    });
-  });
-}
-
-/**
- * Reset the entire game state.
- */
-export function resetGame() {
-  store.reset();
-}
-
-// ─── Clothing Management ────────────────────────────────────────────────────
-
-/**
- * Get the clothing item metadata from the asset manifest.
- * @param {string} itemId
- * @returns {Object|null}
- */
 function getItemMeta(itemId) {
   return ASSET_MANIFEST.clothing[itemId] || null;
 }
 
+function getItemsInCategory(appliedClothing, category) {
+  return appliedClothing.filter((id) => {
+    const meta = getItemMeta(id);
+    return meta && meta.category === category;
+  });
+}
+
+// -- Actions --
+
 /**
- * Apply a clothing item (or remove it if already applied — toggle behavior).
- *
- * Enforces conflict rules:
- * - Max items per category (1 for most, 2 for accessories)
- * - Skateboard conflicts with all footwear
- *
- * @param {string} itemId - The clothing item ID to toggle
- * @returns {{ applied: boolean, removed: string[] }} Result of the action
+ * Select a dinosaur and transition to the dressing screen.
+ * @param {string} dinoId - "trex", "triceratops", or "stegosaurus"
  */
-export function toggleClothing(itemId) {
-  const state = store.getState();
-  const currentItems = [...state.appliedClothing];
+export function selectDino(dinoId) {
+  const validDinos = ["trex", "triceratops", "stegosaurus"];
+  if (!validDinos.includes(dinoId)) {
+    console.warn("Invalid dino ID: " + dinoId);
+    return;
+  }
+
+  store.batch(() => {
+    store.setState({
+      selectedDino: dinoId,
+      currentScreen: "dressing",
+      appliedClothing: [],
+      activeCategory: "hats",
+    }, "selectDino");
+  });
+}
+
+/**
+ * Apply a clothing item to the dinosaur.
+ * Handles conflict rules:
+ * - Replaces existing item in same category (max 1, or 2 for accessories)
+ * - Skateboard removes all footwear; footwear removes skateboard
+ *
+ * @param {string} itemId
+ */
+export function applyClothing(itemId) {
   const meta = getItemMeta(itemId);
-
-  if (\!meta) {
-    console.warn(`Unknown clothing item: ${itemId}`);
-    return { applied: false, removed: [] };
+  if (!meta) {
+    console.warn("Unknown clothing item: " + itemId);
+    return;
   }
 
-  // If already applied, remove it
-  const existingIndex = currentItems.indexOf(itemId);
-  if (existingIndex \!== -1) {
-    currentItems.splice(existingIndex, 1);
-    store.set({ appliedClothing: currentItems });
-    return { applied: false, removed: [itemId] };
-  }
+  const state = store.getState();
+  let applied = [...state.appliedClothing];
 
-  // Applying a new item — check conflicts
-  const removed = [];
+  // If item is already applied, do nothing
+  if (applied.includes(itemId)) return;
+
   const category = meta.category;
   const maxItems = MAX_ITEMS_PER_CATEGORY[category] || 1;
 
-  // Find existing items in the same category
-  const sameCategory = currentItems.filter((id) => {
-    const m = getItemMeta(id);
-    return m && m.category === category;
-  });
-
-  // Remove excess items in the same category (FIFO)
-  while (sameCategory.length >= maxItems) {
-    const oldest = sameCategory.shift();
-    const idx = currentItems.indexOf(oldest);
-    if (idx \!== -1) {
-      currentItems.splice(idx, 1);
-      removed.push(oldest);
-    }
-  }
-
-  // Skateboard ↔ footwear conflict
+  // Skateboard <-> Footwear conflict
   if (itemId === "skateboard") {
-    // Remove all footwear
-    const footwear = currentItems.filter((id) => {
+    applied = applied.filter((id) => {
       const m = getItemMeta(id);
-      return m && m.category === "footwear";
+      return !m || m.category !== "footwear";
     });
-    for (const fwId of footwear) {
-      const idx = currentItems.indexOf(fwId);
-      if (idx \!== -1) {
-        currentItems.splice(idx, 1);
-        removed.push(fwId);
-      }
-    }
   } else if (category === "footwear") {
-    // Remove skateboard if applying footwear
-    const skateIdx = currentItems.indexOf("skateboard");
-    if (skateIdx \!== -1) {
-      currentItems.splice(skateIdx, 1);
-      removed.push("skateboard");
-    }
+    applied = applied.filter((id) => id !== "skateboard");
   }
 
-  // Apply the new item
-  currentItems.push(itemId);
-  store.set({ appliedClothing: currentItems });
+  // Category slot limit
+  const categoryItems = getItemsInCategory(applied, category);
+  if (categoryItems.length >= maxItems) {
+    const toRemove = categoryItems.slice(0, categoryItems.length - maxItems + 1);
+    applied = applied.filter((id) => !toRemove.includes(id));
+  }
 
-  return { applied: true, removed };
+  applied.push(itemId);
+  store.setState({ appliedClothing: applied }, "applyClothing");
 }
 
 /**
- * Remove a specific clothing item.
+ * Remove a clothing item from the dinosaur.
  * @param {string} itemId
  */
 export function removeClothing(itemId) {
-  const current = store.getState().appliedClothing;
-  const idx = current.indexOf(itemId);
-  if (idx === -1) return;
+  const state = store.getState();
+  const applied = state.appliedClothing.filter((id) => id !== itemId);
 
-  const next = [...current];
-  next.splice(idx, 1);
-  store.set({ appliedClothing: next });
+  if (applied.length !== state.appliedClothing.length) {
+    store.setState({ appliedClothing: applied }, "removeClothing");
+  }
 }
 
 /**
- * Clear all applied clothing.
+ * Toggle a clothing item on/off.
+ * @param {string} itemId
+ */
+export function toggleClothing(itemId) {
+  const state = store.getState();
+  if (state.appliedClothing.includes(itemId)) {
+    removeClothing(itemId);
+  } else {
+    applyClothing(itemId);
+  }
+}
+
+/**
+ * Remove all clothing from the dinosaur.
  */
 export function clearAllClothing() {
-  store.set({ appliedClothing: [] });
+  store.setState({ appliedClothing: [] }, "clearAll");
 }
 
 /**
- * Apply a random outfit (one item per category, sometimes skipping).
+ * Apply a random outfit to the current dinosaur.
+ * Picks one random item from each category (2 for accessories).
  */
 export function randomizeOutfit() {
-  const manifest = ASSET_MANIFEST.clothing;
-  const categories = ASSET_MANIFEST.categories;
-  const newItems = [];
+  const clothing = ASSET_MANIFEST.clothing;
+  const allItems = Object.entries(clothing);
+  const newOutfit = [];
 
-  for (const cat of categories) {
-    // 70% chance to pick an item per category (for variety)
-    if (Math.random() > 0.7) continue;
-
-    const categoryItems = Object.entries(manifest)
-      .filter(([, meta]) => meta.category === cat.id)
-      .map(([id]) => id);
-
-    if (categoryItems.length === 0) continue;
-
-    const randomItem =
-      categoryItems[Math.floor(Math.random() * categoryItems.length)];
-    newItems.push(randomItem);
+  // Group items by category
+  const byCategory = {};
+  for (const [id, meta] of allItems) {
+    if (!byCategory[meta.category]) byCategory[meta.category] = [];
+    byCategory[meta.category].push(id);
   }
 
-  // Enforce skateboard/footwear conflict
-  const hasSkateboard = newItems.includes("skateboard");
-  const hasFootwear = newItems.some((id) => {
+  // Pick random item(s) from each category
+  for (const [category, items] of Object.entries(byCategory)) {
+    const maxItems = MAX_ITEMS_PER_CATEGORY[category] || 1;
+    const shuffled = [...items].sort(() => Math.random() - 0.5);
+    const picked = shuffled.slice(0, maxItems);
+    newOutfit.push(...picked);
+  }
+
+  // Handle skateboard <-> footwear conflict
+  const hasSkateboard = newOutfit.includes("skateboard");
+  const footwear = newOutfit.filter((id) => {
     const m = getItemMeta(id);
     return m && m.category === "footwear";
   });
-  if (hasSkateboard && hasFootwear) {
-    // Remove footwear (keep skateboard since it is more fun)
-    const filtered = newItems.filter((id) => {
-      const m = getItemMeta(id);
-      return \!(m && m.category === "footwear");
-    });
-    store.set({ appliedClothing: filtered });
-  } else {
-    store.set({ appliedClothing: newItems });
+
+  if (hasSkateboard && footwear.length > 0) {
+    if (Math.random() > 0.5) {
+      const footSet = new Set(footwear);
+      const filtered = newOutfit.filter((id) => !footSet.has(id));
+      store.setState({ appliedClothing: filtered }, "randomize");
+      return;
+    } else {
+      const filtered = newOutfit.filter((id) => id !== "skateboard");
+      store.setState({ appliedClothing: filtered }, "randomize");
+      return;
+    }
   }
+
+  store.setState({ appliedClothing: newOutfit }, "randomize");
 }
 
-// ─── Category Navigation ────────────────────────────────────────────────────
-
 /**
- * Set the active clothing category in the panel.
+ * Change the active clothing category in the sidebar.
  * @param {string} categoryId
  */
 export function setActiveCategory(categoryId) {
-  store.set({ activeCategory: categoryId });
+  store.setState({ activeCategory: categoryId }, "setActiveCategory");
 }
 
-// ─── Drag State ─────────────────────────────────────────────────────────────
+/** Transition to the finished screen. */
+export function finishDressing() {
+  store.setState({ currentScreen: "finished" }, "finish");
+}
 
-/**
- * Begin dragging a clothing item.
- * @param {string} itemId
- * @param {number} x
- * @param {number} y
- */
-export function startDrag(itemId, x, y) {
-  store.set({
-    dragState: { isDragging: true, itemId, cursorPos: { x, y } },
+/** Return to the dressing screen from the finished screen. */
+export function dressAgain() {
+  store.setState({ currentScreen: "dressing" }, "dressAgain");
+}
+
+/** Start over with a new dinosaur (return to selection screen). */
+export function startOver() {
+  store.batch(() => {
+    store.setState({
+      currentScreen: "select",
+      selectedDino: null,
+      appliedClothing: [],
+      activeCategory: "hats",
+    }, "startOver");
   });
 }
 
-/**
- * Update the drag cursor position.
- * @param {number} x
- * @param {number} y
- */
-export function updateDrag(x, y) {
-  const current = store.getState().dragState;
-  if (\!current.isDragging) return;
-  store.set({
-    dragState: { ...current, cursorPos: { x, y } },
-  });
+/** Go back from dressing to selection. */
+export function goBack() {
+  startOver();
 }
 
 /**
- * End the drag operation.
+ * Update drag state.
+ * @param {Object} dragUpdate
  */
-export function endDrag() {
-  store.set({
-    dragState: { isDragging: false, itemId: null, cursorPos: { x: 0, y: 0 } },
-  });
-}
-
-// ─── Loading State ──────────────────────────────────────────────────────────
-
-/**
- * Update loading progress.
- * @param {string} message
- */
-export function setLoadingMessage(message) {
-  store.set({ loadingMessage: message });
+export function updateDragState(dragUpdate) {
+  const state = store.getState();
+  store.setState({
+    dragState: { ...state.dragState, ...dragUpdate },
+  }, "updateDrag");
 }
 
 /**
- * Mark loading as complete.
+ * Update loading state.
+ * @param {number} progress - 0 to 1
+ * @param {string} [message]
  */
-export function finishLoading() {
-  store.set({ isLoading: false });
+export function setLoadingProgress(progress, message) {
+  const update = { loadingProgress: progress, isLoading: progress < 1 };
+  if (message) update.loadingMessage = message;
+  store.setState(update, "loading");
+}
+
+/**
+ * Set the rendering mode.
+ * @param {"webgpu"|"canvas2d"} mode
+ */
+export function setRenderMode(mode) {
+  store.setState({ renderMode: mode }, "setRenderMode");
 }
