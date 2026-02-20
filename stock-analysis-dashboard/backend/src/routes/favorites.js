@@ -7,17 +7,22 @@ const router = Router();
 router.get("/", async (_req, res, next) => {
   try {
     // TODO: implement favorites service (#33)
-    res.json({ favorites: [] });
+    // Frontend expects string[] of tickers
+    res.json([]);
   } catch (err) {
     next(err);
   }
 });
 
 // Add a favorite
-// POST /api/favorites/:ticker
-router.post("/:ticker", async (req, res, next) => {
+// POST /api/favorites
+// Body: { ticker }
+router.post("/", async (req, res, next) => {
   try {
-    const { ticker } = req.params;
+    const { ticker } = req.body;
+    if (!ticker) {
+      return res.status(400).json({ error: { message: "ticker is required" } });
+    }
     // TODO: implement add favorite (#33)
     res.json({ ticker: ticker.toUpperCase(), message: "Added to favorites" });
   } catch (err) {
