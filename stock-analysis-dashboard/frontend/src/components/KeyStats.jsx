@@ -1,15 +1,32 @@
 export default function KeyStats({ quote }) {
   if (!quote) return null;
 
+  function formatLargeNumber(n) {
+    if (n == null) return '--';
+    if (typeof n === 'string') return n;
+    if (n >= 1e12) return '$' + (n / 1e12).toFixed(2) + 'T';
+    if (n >= 1e9) return '$' + (n / 1e9).toFixed(2) + 'B';
+    if (n >= 1e6) return '$' + (n / 1e6).toFixed(1) + 'M';
+    return '$' + n.toLocaleString();
+  }
+
+  function formatVolume(n) {
+    if (n == null) return '--';
+    if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B';
+    if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+    if (n >= 1e3) return (n / 1e3).toFixed(0) + 'K';
+    return n.toLocaleString();
+  }
+
   const stats = [
-    { label: 'Market Cap', value: quote.marketCap || '--' },
-    { label: 'P/E Ratio', value: quote.pe?.toFixed(1) || '--' },
-    { label: '52W High', value: quote.high52w ? '$' + quote.high52w.toFixed(2) : '--' },
-    { label: '52W Low', value: quote.low52w ? '$' + quote.low52w.toFixed(2) : '--' },
-    { label: 'Volume', value: quote.volume ? (quote.volume / 1e6).toFixed(1) + 'M' : '--' },
-    { label: 'Avg Volume', value: quote.avgVolume ? (quote.avgVolume / 1e6).toFixed(1) + 'M' : '--' },
-    { label: 'Dividend', value: quote.dividendYield ? quote.dividendYield.toFixed(2) + '%' : '--' },
-    { label: 'Beta', value: quote.beta?.toFixed(2) || '--' },
+    { label: 'Market Cap', value: formatLargeNumber(quote.marketCap) },
+    { label: 'P/E Ratio', value: quote.pe != null ? quote.pe.toFixed(1) : '--' },
+    { label: '52W High', value: quote.high52w != null ? '$' + quote.high52w.toFixed(2) : '--' },
+    { label: '52W Low', value: quote.low52w != null ? '$' + quote.low52w.toFixed(2) : '--' },
+    { label: 'Volume', value: formatVolume(quote.volume) },
+    { label: 'Avg Volume', value: formatVolume(quote.avgVolume) },
+    { label: 'Dividend', value: quote.dividendYield != null ? quote.dividendYield.toFixed(2) + '%' : '--' },
+    { label: 'Beta', value: quote.beta != null ? quote.beta.toFixed(2) : '--' },
   ];
 
   return (
