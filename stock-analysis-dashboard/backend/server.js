@@ -9,6 +9,8 @@ import earningsRoutes from "./src/routes/earnings.js";
 import newsRoutes from "./src/routes/news.js";
 import favoritesRoutes from "./src/routes/favorites.js";
 import aiRoutes from "./src/routes/ai.js";
+import { registerEarningsCronJobs } from "./src/services/earnings-cron.js";
+import { registerNewsCronJobs } from "./src/services/news-cron.js";
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -37,6 +39,11 @@ app.use(errorHandler);
 async function start() {
   try {
     initDb();
+
+    // Register scheduled jobs (earnings refresh + news polling)
+    registerEarningsCronJobs();
+    registerNewsCronJobs();
+
     app.listen(PORT, () => {
       console.log(`StockPulse API running on http://localhost:${PORT}`);
     });
