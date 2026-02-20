@@ -116,7 +116,12 @@ function insertNewsTickerAssociations(db, newsId, tickers) {
     VALUES (?, ?, ?)
   `);
   for (const ticker of tickers) {
-    stmt.run(newsId, ticker, 1.0);
+    try {
+      stmt.run(newsId, ticker, 1.0);
+    } catch {
+      // Skip tickers not yet in stocks table (FK constraint).
+      // Once stock data is populated, associations will succeed.
+    }
   }
 }
 
