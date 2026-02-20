@@ -6,7 +6,6 @@ on:
       - main
     paths:
       - stock-analysis-dashboard/frontend/**
-      - dino-dress-up/**
       - .github/workflows/deploy.yml
   workflow_dispatch:
 
@@ -49,21 +48,13 @@ jobs:
           # Copy index.html to 404.html for SPA client-side routing
           cp dist/index.html dist/404.html
 
-      - name: Assemble site
-        run: |
-          mkdir -p _site
-          # StockPulse Dashboard at root
-          cp -r stock-analysis-dashboard/frontend/dist/* _site/
-          # Dino Dress-Up at /dino-dress-up/
-          cp -r dino-dress-up _site/dino-dress-up
-
       - name: Setup GitHub Pages
         uses: actions/configure-pages@v5
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: _site
+          path: stock-analysis-dashboard/frontend/dist
 
       - name: Deploy to GitHub Pages
         id: deployment
