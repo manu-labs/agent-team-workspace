@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply font-sans;
+  }
+
+  /* Scrollbar styling for dark mode */
+  ::-webkit-scrollbar {
+    @apply w-2;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-surface-900;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-surface-700 rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-brand-600;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-surface-800 border border-surface-700 rounded-xl p-4;
+  }
+  .card-hover {
+    @apply card transition-all duration-200 hover:border-brand-500/50 hover:shadow-lg hover:shadow-brand-500/10;
+  }
+  .badge-gain {
+    @apply inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-gain/10 text-gain;
+  }
+  .badge-loss {
+    @apply inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-loss/10 text-loss;
+  }
+}
