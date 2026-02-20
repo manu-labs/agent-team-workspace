@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { newsApi } from '../services/api';
 
 const PLACEHOLDER_NEWS = [
@@ -28,39 +28,10 @@ function formatTimeAgo(dateStr) {
 }
 
 function NewsCard({ headline, source, timeAgo, publishedAt, tickers, imageUrl, url }) {
-  const navigate = useNavigate();
   const displayTime = timeAgo || formatTimeAgo(publishedAt);
-  const hasUrl = Boolean(url);
 
-  // Ticker chips: when the card itself is an <a>, render chips as <button> to avoid
-  // nested anchor elements (invalid HTML, breaks keyboard nav — issue #57).
-  const tickerChips = tickers && tickers.length > 0 && (
-    <div className="flex gap-1.5 mt-2">
-      {tickers.map((t) => (
-        hasUrl ? (
-          <button
-            key={t}
-            type="button"
-            onClick={(e) => { e.preventDefault(); navigate('/stock/' + t); }}
-            className="px-1.5 py-0.5 text-xs rounded bg-surface-700 text-brand-400 hover:bg-brand-600/20 transition-colors"
-          >
-            {t}
-          </button>
-        ) : (
-          <Link
-            key={t}
-            to={'/stock/' + t}
-            className="px-1.5 py-0.5 text-xs rounded bg-surface-700 text-brand-400 hover:bg-brand-600/20 transition-colors"
-          >
-            {t}
-          </Link>
-        )
-      ))}
-    </div>
-  );
-
-  const content = (
-    <>
+  return (
+    <article className="card-hover flex gap-4">
       {imageUrl && (
         <div className="shrink-0 w-24 h-24 rounded-lg bg-surface-700 overflow-hidden">
           <img src={imageUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
@@ -68,31 +39,40 @@ function NewsCard({ headline, source, timeAgo, publishedAt, tickers, imageUrl, u
       )}
       <div className="flex-1 min-w-0">
         <h3 className="font-medium text-white text-sm leading-snug mb-1 line-clamp-2">
-          {headline}
+          {url ? (
+            <a href={url} target="_blank" rel="noopener noreferrer" className="hover:text-brand-400 transition-colors">
+              {headline}
+              <span className="inline-block ml-1 text-surface-200/30 text-xs align-middle">&#8599;</span>
+            </a>
+          ) : (
+            headline
+          )}
         </h3>
         <div className="flex items-center gap-2 text-xs text-surface-200/50">
           <span>{source}</span>
           {displayTime && (
             <>
-              <span>&middot;</span>
+              <span>{'\u00b7'}</span>
               <span>{displayTime}</span>
             </>
           )}
         </div>
-        {tickerChips}
+        {tickers && tickers.length > 0 && (
+          <div className="flex gap-1.5 mt-2">
+            {tickers.map((t) => (
+              <Link
+                key={t}
+                to={'/stock/' + t}
+                className="px-1.5 py-0.5 text-xs rounded bg-surface-700 text-brand-400 hover:bg-brand-600/20 transition-colors"
+              >
+                {t}
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
-    </>
+    </article>
   );
-
-  if (hasUrl) {
-    return (
-      <a href={url} target="_blank" rel="noopener noreferrer" className="card-hover flex gap-4">
-        {content}
-      </a>
-    );
-  }
-
-  return <article className="card-hover flex gap-4">{content}</article>;
 }
 
 export default function NewsFeed({ ticker }) {
