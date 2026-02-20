@@ -3,40 +3,29 @@ import { Router } from "express";
 const router = Router();
 
 // Chat with AI about a stock
-// POST /api/ai/:ticker/chat
-// Body: { message, history }
-// Response: streaming text
-router.post("/:ticker/chat", async (req, res, next) => {
+// POST /api/ai/chat
+// Body: { ticker, question, context_type }
+// Response: streaming SSE
+router.post("/chat", async (req, res, next) => {
   try {
-    const { ticker } = req.params;
-    const { message, history = [] } = req.body;
+    const { ticker, question, context_type = "general" } = req.body;
 
-    if (!message) {
+    if (!ticker || !question) {
       return res.status(400).json({
-        error: { message: "message is required" },
+        error: { message: "ticker and question are required" },
       });
     }
 
     // TODO: implement Groq streaming chat (#36)
-    // Set headers for streaming response
-    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    // Set SSE headers for streaming
+    res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Transfer-Encoding", "chunked");
+    res.setHeader("Connection", "keep-alive");
 
-    res.write("AI chat not yet implemented for " + ticker.toUpperCase() + ". See issue #36.");
+    res.write(`data: ${JSON.stringify({ type: "start" })}\n\n`);
+    res.write(`data: ${JSON.stringify({ type: "content", text: "AI chat not yet implemented. See issue #36." })}\n\n`);
+    res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
     res.end();
-  } catch (err) {
-    next(err);
-  }
-});
-
-// Get AI summary for a stock
-// GET /api/ai/:ticker/summary
-router.get("/:ticker/summary", async (req, res, next) => {
-  try {
-    const { ticker } = req.params;
-    // TODO: implement AI summary (#36)
-    res.json({ summary: null, ticker: ticker.toUpperCase() });
   } catch (err) {
     next(err);
   }
