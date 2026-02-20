@@ -1,4 +1,10 @@
 import { Router } from "express";
+import {
+  searchStocks,
+  getStockProfile,
+  getStockPrices,
+  getTrendingStocks,
+} from "../services/stock-service.js";
 
 const router = Router();
 
@@ -10,8 +16,8 @@ router.get("/search", async (req, res, next) => {
     if (!q || q.length < 1) {
       return res.json({ results: [] });
     }
-    // TODO: implement stock search service (#33)
-    res.json({ results: [], query: q });
+    const results = await searchStocks(q);
+    res.json({ results });
   } catch (err) {
     next(err);
   }
@@ -21,8 +27,8 @@ router.get("/search", async (req, res, next) => {
 // GET /api/stocks/trending
 router.get("/trending", async (_req, res, next) => {
   try {
-    // TODO: implement trending service (#33)
-    res.json({ trending: [] });
+    const trending = await getTrendingStocks();
+    res.json({ trending });
   } catch (err) {
     next(err);
   }
@@ -33,25 +39,27 @@ router.get("/trending", async (_req, res, next) => {
 router.get("/:ticker", async (req, res, next) => {
   try {
     const { ticker } = req.params;
-    // TODO: implement stock profile service (#33)
-    res.json({ ticker: ticker.toUpperCase(), message: "Not implemented yet" });
+    const profile = await getStockProfile(ticker);
+    if (!profile) {
+      return res.status(404).json({ error: "Stock not found" });
+    }
+    res.json(profile);
   } catch (err) {
     next(err);
   }
 });
 
 // Get historical prices / chart data
-// GET /api/stocks/:ticker/prices?range=1Y
+// GET /api/stocks/:ticker/prices?range=1M
 router.get("/:ticker/prices", async (req, res, next) => {
   try {
     const { ticker } = req.params;
-    const { range = "1Y" } = req.query;
-    // TODO: implement price history service (#33)
-    res.json({ ticker: ticker.toUpperCase(), range, prices: [] });
+    const { range = "1M" } = req.query;
+    const prices = await getStockPrices(ticker, range);
+    res.json({ ticker: ticker.toUpperCase(), range, prices });
   } catch (err) {
     next(err);
   }
 });
 
 export default router;
-
