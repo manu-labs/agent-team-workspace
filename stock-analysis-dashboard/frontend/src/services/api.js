@@ -9,12 +9,24 @@ async function request(endpoint, options = {}) {
     ...options,
   });
 
-  if (!res.ok) {
+  if (\!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error?.message || body.error || 'Request failed: ' + res.status);
   }
 
   return res.json();
+}
+
+// Normalizes a raw news item from the backend into the shape NewsCard expects.
+// The backend uses { title, published_at, symbols } but NewsCard expects
+// { headline, publishedAt, tickers }.
+function normalizeNewsItem(item) {
+  return {
+    ...item,
+    headline: item.headline || item.title || '',
+    publishedAt: item.publishedAt || item.published_at || null,
+    tickers: item.tickers || item.symbols || [],
+  };
 }
 
 // Stock endpoints
@@ -40,8 +52,10 @@ export const earningsApi = {
 
 // News endpoints
 export const newsApi = {
-  getFeed: (limit = 20) => request('/news?limit=' + limit).then((d) => d.news),
-  getForStock: (ticker) => request('/news/' + ticker).then((d) => d.news),
+  getFeed: (limit = 20) =>
+    request('/news?limit=' + limit).then((d) => (d.news || []).map(normalizeNewsItem)),
+  getForStock: (ticker) =>
+    request('/news/' + ticker).then((d) => (d.news || []).map(normalizeNewsItem)),
 };
 
 // Favorites endpoints
