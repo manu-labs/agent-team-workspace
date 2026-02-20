@@ -9,6 +9,7 @@ import earningsRoutes from "./src/routes/earnings.js";
 import newsRoutes from "./src/routes/news.js";
 import favoritesRoutes from "./src/routes/favorites.js";
 import aiRoutes from "./src/routes/ai.js";
+import { registerStockCronJobs } from "./src/services/stock-cron.js";
 import { registerEarningsCronJobs } from "./src/services/earnings-cron.js";
 import { registerNewsCronJobs } from "./src/services/news-cron.js";
 
@@ -40,9 +41,10 @@ async function start() {
   try {
     initDb();
 
-    // Register scheduled jobs (earnings refresh + news polling)
-    registerEarningsCronJobs();
-    registerNewsCronJobs();
+    // Register scheduled jobs
+    registerStockCronJobs();      // stock price refresh + trending (#33)
+    registerEarningsCronJobs();   // earnings refresh + status updates (#34)
+    registerNewsCronJobs();       // news ingestion every 10 min (#35)
 
     app.listen(PORT, () => {
       console.log(`StockPulse API running on http://localhost:${PORT}`);
@@ -54,4 +56,3 @@ async function start() {
 }
 
 start();
-
