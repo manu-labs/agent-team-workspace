@@ -1,38 +1,50 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { stockApi } from '../services/api';
 
 const RANGES = ['1D', '1W', '1M', '3M', '6M', '1Y', '5Y'];
+
+function generatePlaceholder(points = 30) {
+  const now = Date.now();
+  let price = 150 + Math.random() * 50;
+  const data = [];
+  for (let i = 0; i < points; i++) {
+    price += (Math.random() - 0.48) * 3;
+    data.push({
+      date: new Date(now - (points - i) * 86400000).toISOString().slice(0, 10),
+      close: Math.round(price * 100) / 100,
+    });
+  }
+  return data;
+}
 
 export default function PriceChart({ ticker }) {
   const [range, setRange] = useState('1M');
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const fetchChart = useCallback(async () => {
     setLoading(true);
-    stockApi.getChart(ticker, range)
-      .then(setData)
-      .catch((err) => {
-        console.error('Failed to load chart:', err);
-        // Generate placeholder data
-        const now = Date.now();
-        const points = 30;
-        let price = 150 + Math.random() * 50;
-        const placeholder = [];
-        for (let i = 0; i < points; i++) {
-          price += (Math.random() - 0.48) * 3;
-          placeholder.push({
-            date: new Date(now - (points - i) * 86400000).toISOString().slice(0, 10),
-            price: Math.round(price * 100) / 100,
-          });
-        }
-        setData(placeholder);
-      })
-      .finally(() => setLoading(false));
+    try {
+      const prices = await stockApi.getChart(ticker, range);
+      if (prices && prices.length > 0) {
+        setData(prices);
+      } else {
+        setData(generatePlaceholder());
+      }
+    } catch (err) {
+      console.error('Failed to load chart:', err);
+      setData(generatePlaceholder());
+    } finally {
+      setLoading(false);
+    }
   }, [ticker, range]);
 
-  const isGain = data.length >= 2 && data[data.length - 1].price >= data[0].price;
+  useEffect(() => {
+    fetchChart();
+  }, [fetchChart]);
+
+  const isGain = data.length >= 2 && data[data.length - 1].close >= data[0].close;
   const color = isGain ? '#22c55e' : '#ef4444';
 
   return (
@@ -56,11 +68,15 @@ export default function PriceChart({ ticker }) {
       {/* Chart */}
       {loading ? (
         <div className="h-64 animate-pulse bg-surface-700/30 rounded-lg" />
+      ) : data.length === 0 ? (
+        <div className="h-64 flex items-center justify-center text-surface-200/40 text-sm">
+          No price data available for this range.
+        </div>
       ) : (
         <ResponsiveContainer width="100%" height={280}>
           <AreaChart data={data}>
             <defs>
-              <linearGradient id={"gradient-" + ticker} x1="0" y1="0" x2="0" y2="1">
+              <linearGradient id={"gradient-" + ticker + "-" + range} x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor={color} stopOpacity={0.3} />
                 <stop offset="100%" stopColor={color} stopOpacity={0} />
               </linearGradient>
@@ -70,7 +86,10 @@ export default function PriceChart({ ticker }) {
               axisLine={false}
               tickLine={false}
               tick={{ fill: '#94a3b8', fontSize: 11 }}
-              tickFormatter={(v) => v.slice(5)}
+              tickFormatter={(v) => {
+                if (range === '1D') return v.slice(11, 16);
+                return v.slice(5);
+              }}
             />
             <YAxis
               domain={['auto', 'auto']}
@@ -89,13 +108,14 @@ export default function PriceChart({ ticker }) {
                 fontSize: '12px',
               }}
               formatter={(value) => ['$' + value.toFixed(2), 'Price']}
+              labelFormatter={(label) => label}
             />
             <Area
               type="monotone"
-              dataKey="price"
+              dataKey="close"
               stroke={color}
               strokeWidth={2}
-              fill={"url(#gradient-" + ticker + ")"}
+              fill={"url(#gradient-" + ticker + "-" + range + ")"}
             />
           </AreaChart>
         </ResponsiveContainer>
