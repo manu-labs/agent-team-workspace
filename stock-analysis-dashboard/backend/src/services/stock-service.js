@@ -7,6 +7,7 @@
  * Implements: #33
  */
 
+import yahooFinance from "yahoo-finance2";
 import { getDb } from "../db/index.js";
 
 // ---------------------------------------------------------------------------
@@ -28,11 +29,8 @@ function daysAgo(n) {
  * Falls back to local DB if Yahoo is unavailable.
  */
 export async function searchStocks(query) {
-  const yf = await import("yahoo-finance2");
-  const yahoo = yf.default;
-
   try {
-    const result = await yahoo.search(query, { newsCount: 0 });
+    const result = await yahooFinance.search(query, { newsCount: 0 });
     return (result.quotes || [])
       .filter((q) => q.quoteType === "EQUITY")
       .slice(0, 10)
@@ -62,13 +60,11 @@ export async function searchStocks(query) {
  * Caches company info in the stocks table.
  */
 export async function getStockProfile(ticker) {
-  const yf = await import("yahoo-finance2");
-  const yahoo = yf.default;
   const upperTicker = ticker.toUpperCase();
   const db = getDb();
 
   try {
-    const quote = await yahoo.quote(upperTicker);
+    const quote = await yahooFinance.quote(upperTicker);
 
     const profile = {
       ticker: quote.symbol,
@@ -126,8 +122,6 @@ export async function getStockProfile(ticker) {
  * Caches daily prices in the prices table.
  */
 export async function getStockPrices(ticker, range = "1M") {
-  const yf = await import("yahoo-finance2");
-  const yahoo = yf.default;
   const upperTicker = ticker.toUpperCase();
 
   const rangeConfig = {
@@ -143,7 +137,7 @@ export async function getStockPrices(ticker, range = "1M") {
   const config = rangeConfig[range] || rangeConfig["1M"];
 
   try {
-    const history = await yahoo.historical(upperTicker, {
+    const history = await yahooFinance.historical(upperTicker, {
       period1: config.period1,
       interval: config.interval,
     });
