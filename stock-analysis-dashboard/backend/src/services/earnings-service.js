@@ -49,7 +49,7 @@ function htmlToText(html) {
 async function fetchJson(url, headers = {}) {
   const res = await fetch(url, {
     headers: {
-      "User-Agent": "StockPulse/1.0 contact@stockpulse.example",
+      "User-Agent": `StockPulse/1.0 ${process.env.EDGAR_CONTACT_EMAIL || "contact@stockpulse.example"}`,
       Accept: "application/json",
       ...headers,
     },
@@ -64,7 +64,7 @@ async function fetchJson(url, headers = {}) {
 async function fetchText(url) {
   const res = await fetch(url, {
     headers: {
-      "User-Agent": "StockPulse/1.0 contact@stockpulse.example",
+      "User-Agent": `StockPulse/1.0 ${process.env.EDGAR_CONTACT_EMAIL || "contact@stockpulse.example"}`,
     },
   });
   if (!res.ok) throw new Error(`HTTP ${res.status} fetching ${url}`);
@@ -361,8 +361,9 @@ export async function refreshEarnings(ticker) {
           filing.primaryDocument
         );
 
-        // Trim to ~50k chars to stay within Groq context limits
-        const trimmedText = text.slice(0, 50000);
+        // Trim to configured limit (default 50k chars, ~12k tokens for Groq context)
+        const maxChars = parseInt(process.env.TRANSCRIPT_MAX_CHARS || "50000", 10);
+        const trimmedText = text.slice(0, maxChars);
 
         upsertTranscript(db, {
           ticker: upperTicker,
@@ -401,4 +402,5 @@ export async function backfillEarnings(tickers) {
   }
   return summary;
 }
+
 
