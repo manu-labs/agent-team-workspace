@@ -36,7 +36,7 @@ router.get("/:ticker/:date", async (req, res, next) => {
   try {
     const { ticker, date } = req.params;
     const report = await getEarningsReport(ticker, date);
-    if (\!report) {
+    if (!report) {
       return res.status(404).json({ error: "Earnings report not found" });
     }
     res.json({ ticker: ticker.toUpperCase(), date, report });
@@ -50,7 +50,7 @@ router.get("/:ticker/:date/transcript", async (req, res, next) => {
   try {
     const { ticker, date } = req.params;
     const transcript = await getTranscript(ticker, date);
-    if (\!transcript) {
+    if (!transcript) {
       return res.status(404).json({ error: "Transcript not found" });
     }
     res.json({ ticker: ticker.toUpperCase(), date, transcript });
@@ -76,4 +76,3 @@ router.post("/refresh/:ticker", async (req, res, next) => {
 });
 
 export default router;
-
