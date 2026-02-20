@@ -9,7 +9,7 @@ async function request(endpoint, options = {}) {
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || 'Request failed: ' + res.status);
+    throw new Error(body.error?.message || body.error || 'Request failed: ' + res.status);
   }
 
   return res.json();
@@ -17,39 +17,45 @@ async function request(endpoint, options = {}) {
 
 // Stock endpoints
 export const stockApi = {
-  search: (query) => request('/stocks/search?q=' + encodeURIComponent(query)),
+  search: (query) =>
+    request('/stocks/search?q=' + encodeURIComponent(query)).then((d) => d.results),
   getQuote: (ticker) => request('/stocks/' + ticker),
-  getChart: (ticker, range = '1M') => request('/stocks/' + ticker + '/chart?range=' + range),
-  getTrending: () => request('/stocks/trending'),
+  getChart: (ticker, range = '1M') =>
+    request('/stocks/' + ticker + '/prices?range=' + range).then((d) => d.prices),
+  getTrending: () => request('/stocks/trending').then((d) => d.trending),
 };
 
 // Earnings endpoints
 export const earningsApi = {
-  getHistory: (ticker) => request('/earnings/' + ticker),
-  getReport: (ticker, date) => request('/earnings/' + ticker + '/' + date),
-  getUpcoming: () => request('/earnings/upcoming'),
+  getHistory: (ticker) =>
+    request('/earnings/' + ticker).then((d) => d.earnings),
+  getReport: (ticker, date) =>
+    request('/earnings/' + ticker + '/' + date).then((d) => d.report),
+  getTranscript: (ticker, date) =>
+    request('/earnings/' + ticker + '/' + date + '/transcript').then((d) => d.transcript),
+  getUpcoming: () => request('/earnings/upcoming').then((d) => d.upcoming),
 };
 
 // News endpoints
 export const newsApi = {
-  getFeed: (limit = 20) => request('/news?limit=' + limit),
-  getForStock: (ticker) => request('/news/' + ticker),
+  getFeed: (limit = 20) => request('/news?limit=' + limit).then((d) => d.news),
+  getForStock: (ticker) => request('/news/' + ticker).then((d) => d.news),
 };
 
 // Favorites endpoints
 export const favoritesApi = {
-  getAll: () => request('/favorites'),
-  add: (ticker) => request('/favorites', { method: 'POST', body: JSON.stringify({ ticker }) }),
+  getAll: () => request('/favorites').then((d) => d.favorites),
+  add: (ticker) => request('/favorites/' + ticker, { method: 'POST' }),
   remove: (ticker) => request('/favorites/' + ticker, { method: 'DELETE' }),
 };
 
 // AI endpoints
 export const aiApi = {
-  getSummary: (ticker) => request('/ai/' + ticker + '/summary'),
-  chat: (ticker, message, history = []) =>
-    fetch(API_BASE + '/ai/' + ticker + '/chat', {
+  getInsights: (ticker, date) => request('/ai/insights/' + ticker + '/' + date),
+  chat: (ticker, question, contextType = 'general') =>
+    fetch(API_BASE + '/ai/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, history }),
+      body: JSON.stringify({ ticker, question, context_type: contextType }),
     }),
 };
