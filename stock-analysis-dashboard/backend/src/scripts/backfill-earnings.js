@@ -1,4 +1,4 @@
-#\!/usr/bin/env node
+#!/usr/bin/env node
 /**
  * backfill-earnings.js — One-time script to populate historical earnings data.
  *
@@ -38,7 +38,7 @@ async function main() {
   const results = await backfillEarnings(tickers);
   const elapsed = ((Date.now() - start) / 1000).toFixed(1);
 
-  const succeeded = results.filter((r) => \!r.error).length;
+  const succeeded = results.filter((r) => !r.error).length;
   const failed = results.filter((r) => r.error).length;
   const totalEarnings = results.reduce((sum, r) => sum + (r.earnings || 0), 0);
   const totalTranscripts = results.reduce((sum, r) => sum + (r.transcripts || 0), 0);
@@ -64,4 +64,3 @@ main().catch((err) => {
   console.error("Backfill crashed:", err);
   process.exit(1);
 });
-
