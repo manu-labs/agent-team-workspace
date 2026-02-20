@@ -1,62 +1,75 @@
 import { Router } from "express";
+import {
+  getUpcomingEarnings,
+  getEarningsHistory,
+  getEarningsReport,
+  getTranscript,
+  refreshEarnings,
+} from "../services/earnings-service.js";
 
 const router = Router();
 
-// Get upcoming earnings
 // GET /api/earnings/upcoming?days=14
 router.get("/upcoming", async (req, res, next) => {
   try {
-    const days = parseInt(req.query.days || "14", 10);
-    // TODO: implement earnings calendar service (#34)
-    res.json({ upcoming: [], days });
+    const days = Math.min(parseInt(req.query.days || "14", 10), 90);
+    const upcoming = await getUpcomingEarnings(days);
+    res.json({ upcoming, days });
   } catch (err) {
     next(err);
   }
 });
 
-// Get all earnings history for a stock
 // GET /api/earnings/:ticker
 router.get("/:ticker", async (req, res, next) => {
   try {
     const { ticker } = req.params;
-    // TODO: implement earnings history service (#34)
-    res.json({ ticker: ticker.toUpperCase(), earnings: [] });
+    const earnings = await getEarningsHistory(ticker);
+    res.json({ ticker: ticker.toUpperCase(), earnings });
   } catch (err) {
     next(err);
   }
 });
 
-// Get specific earnings report details
 // GET /api/earnings/:ticker/:date
 router.get("/:ticker/:date", async (req, res, next) => {
   try {
     const { ticker, date } = req.params;
-    // TODO: implement earnings detail service (#34)
-    res.json({ ticker: ticker.toUpperCase(), date, report: null });
+    const report = await getEarningsReport(ticker, date);
+    if (\!report) {
+      return res.status(404).json({ error: "Earnings report not found" });
+    }
+    res.json({ ticker: ticker.toUpperCase(), date, report });
   } catch (err) {
     next(err);
   }
 });
 
-// Get full transcript text
 // GET /api/earnings/:ticker/:date/transcript
 router.get("/:ticker/:date/transcript", async (req, res, next) => {
   try {
     const { ticker, date } = req.params;
-    // TODO: implement transcript service (#34)
-    res.json({ ticker: ticker.toUpperCase(), date, transcript: null });
+    const transcript = await getTranscript(ticker, date);
+    if (\!transcript) {
+      return res.status(404).json({ error: "Transcript not found" });
+    }
+    res.json({ ticker: ticker.toUpperCase(), date, transcript });
   } catch (err) {
     next(err);
   }
 });
 
-// Trigger a rescrape for a stock
 // POST /api/earnings/refresh/:ticker
 router.post("/refresh/:ticker", async (req, res, next) => {
   try {
     const { ticker } = req.params;
-    // TODO: implement earnings refresh (#34)
-    res.json({ ticker: ticker.toUpperCase(), message: "Refresh queued" });
+    // Run async — return immediately, scrape in background
+    refreshEarnings(ticker).then((result) => {
+      console.log("Earnings refresh complete:", result);
+    }).catch((err) => {
+      console.error("Earnings refresh failed:", err);
+    });
+    res.json({ ticker: ticker.toUpperCase(), message: "Refresh started" });
   } catch (err) {
     next(err);
   }
