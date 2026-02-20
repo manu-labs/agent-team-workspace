@@ -30,7 +30,7 @@ export function initDb() {
 }
 
 export function getDb() {
-  if (\!db) {
+  if (!db) {
     throw new Error("Database not initialized. Call initDb() first.");
   }
   return db;
