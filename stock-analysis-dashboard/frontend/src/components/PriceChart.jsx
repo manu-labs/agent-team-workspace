@@ -4,20 +4,6 @@ import { stockApi } from '../services/api';
 
 const RANGES = ['1D', '1W', '1M', '3M', '6M', '1Y', '5Y'];
 
-function generatePlaceholder(points = 30) {
-  const now = Date.now();
-  let price = 150 + Math.random() * 50;
-  const data = [];
-  for (let i = 0; i < points; i++) {
-    price += (Math.random() - 0.48) * 3;
-    data.push({
-      date: new Date(now - (points - i) * 86400000).toISOString().slice(0, 10),
-      close: Math.round(price * 100) / 100,
-    });
-  }
-  return data;
-}
-
 export default function PriceChart({ ticker }) {
   const [range, setRange] = useState('1M');
   const [data, setData] = useState([]);
@@ -27,14 +13,10 @@ export default function PriceChart({ ticker }) {
     setLoading(true);
     try {
       const prices = await stockApi.getChart(ticker, range);
-      if (prices && prices.length > 0) {
-        setData(prices);
-      } else {
-        setData(generatePlaceholder());
-      }
+      setData(prices && prices.length > 0 ? prices : []);
     } catch (err) {
       console.error('Failed to load chart:', err);
-      setData(generatePlaceholder());
+      setData([]);
     } finally {
       setLoading(false);
     }
