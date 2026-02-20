@@ -1,28 +1,48 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { stockApi } from '../services/api';
 import StockCard from './StockCard';
+
+const PLACEHOLDER_STOCKS = [
+  { ticker: 'NVDA', name: 'NVIDIA Corp', price: 875.42, change: 12.34, changePercent: 1.43 },
+  { ticker: 'AAPL', name: 'Apple Inc', price: 189.84, change: -0.96, changePercent: -0.50 },
+  { ticker: 'TSLA', name: 'Tesla Inc', price: 248.50, change: 18.90, changePercent: 8.23 },
+  { ticker: 'META', name: 'Meta Platforms', price: 502.30, change: 6.80, changePercent: 1.37 },
+  { ticker: 'MSFT', name: 'Microsoft Corp', price: 415.60, change: 3.20, changePercent: 0.78 },
+  { ticker: 'AMZN', name: 'Amazon.com', price: 186.50, change: -1.20, changePercent: -0.64 },
+];
+
+const REFRESH_INTERVAL = 60000; // 60 seconds
 
 export default function TrendingBar() {
   const [stocks, setStocks] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const fetchTrending = useCallback(async (isInitial = false) => {
+    if (isInitial) setLoading(true);
+    try {
+      const data = await stockApi.getTrending();
+      if (data && data.length > 0) {
+        setStocks(data);
+        setError(null);
+      } else {
+        // API returned empty — use placeholders
+        setStocks(PLACEHOLDER_STOCKS);
+      }
+    } catch (err) {
+      console.error('Failed to load trending:', err);
+      setError(err.message);
+      if (stocks.length === 0) setStocks(PLACEHOLDER_STOCKS);
+    } finally {
+      if (isInitial) setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    stockApi.getTrending()
-      .then(setStocks)
-      .catch((err) => {
-        console.error('Failed to load trending:', err);
-        // Show placeholder data on API failure
-        setStocks([
-          { ticker: 'NVDA', name: 'NVIDIA Corp', price: 875.42, change: 12.34, changePercent: 1.43 },
-          { ticker: 'AAPL', name: 'Apple Inc', price: 189.84, change: -0.96, changePercent: -0.50 },
-          { ticker: 'TSLA', name: 'Tesla Inc', price: 248.50, change: 18.90, changePercent: 8.23 },
-          { ticker: 'META', name: 'Meta Platforms', price: 502.30, change: 6.80, changePercent: 1.37 },
-          { ticker: 'MSFT', name: 'Microsoft Corp', price: 415.60, change: 3.20, changePercent: 0.78 },
-          { ticker: 'AMZN', name: 'Amazon.com', price: 186.50, change: -1.20, changePercent: -0.64 },
-        ]);
-      })
-      .finally(() => setLoading(false));
-  }, []);
+    fetchTrending(true);
+    const interval = setInterval(() => fetchTrending(false), REFRESH_INTERVAL);
+    return () => clearInterval(interval);
+  }, [fetchTrending]);
 
   if (loading) {
     return (
