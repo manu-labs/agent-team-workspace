@@ -51,20 +51,23 @@ The frontend runs on `http://localhost:5173` with proxy to backend.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | /api/stocks/search?q= | Search stocks |
+| GET | /api/stocks/search?q= | Search stocks → `{ results: [] }` |
 | GET | /api/stocks/:ticker | Stock profile + quote |
-| GET | /api/stocks/:ticker/chart?range= | Chart data |
-| GET | /api/stocks/trending | Trending stocks |
-| GET | /api/favorites | User favorites (string[]) |
-| POST | /api/favorites | Add favorite ({ ticker }) |
+| GET | /api/stocks/:ticker/prices?range= | Price history |
+| GET | /api/stocks/trending | Trending stocks → `{ trending: [] }` |
+| GET | /api/favorites | User favorites → `{ favorites: [] }` |
+| POST | /api/favorites/:ticker | Add favorite |
 | DELETE | /api/favorites/:ticker | Remove favorite |
 | GET | /api/earnings/upcoming | Upcoming earnings |
 | GET | /api/earnings/:ticker | Earnings history |
 | GET | /api/earnings/:ticker/:date | Earnings report detail |
-| GET | /api/news?limit=20 | Market news feed |
+| GET | /api/earnings/:ticker/:date/transcript | Earnings transcript |
+| GET | /api/news?limit=20&offset=0 | Market news → `{ news: [], total }` |
 | GET | /api/news/:ticker | Stock-specific news |
-| POST | /api/ai/:ticker/chat | AI Q&A (streaming text) |
-| GET | /api/ai/:ticker/summary | AI stock summary |
+| GET | /api/news/trending | Trending news |
+| POST | /api/ai/chat | AI Q&A (SSE streaming) |
+| GET | /api/ai/insights/:ticker/:date | Cached AI insights |
+| POST | /api/ai/insights/:ticker/:date/generate | Generate AI insights |
 
 ## Environment Variables
 
