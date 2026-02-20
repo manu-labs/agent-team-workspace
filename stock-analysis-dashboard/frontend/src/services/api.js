@@ -1,4 +1,6 @@
-const API_BASE = '/api';
+// In production, VITE_API_URL points to the deployed backend (e.g. https://stockpulse-api.up.railway.app/api).
+// In development, Vite proxies /api to localhost:3001.
+const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 async function request(endpoint, options = {}) {
   const url = API_BASE + endpoint;
