@@ -26,23 +26,37 @@ export default function AiChat({ ticker }) {
     setMessages((prev) => [...prev, assistantMsg]);
 
     try {
-      const res = await aiApi.chat(ticker, text, messages);
+      const res = await aiApi.chat(ticker, text);
 
       if (res.ok && res.body) {
+        // Backend sends Server-Sent Events: data: {"type":"content","text":"..."}
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let fullText = '';
+        let buffer = '';
 
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          const chunk = decoder.decode(value, { stream: true });
-          fullText += chunk;
-          setMessages((prev) => {
-            const updated = [...prev];
-            updated[updated.length - 1] = { role: 'assistant', content: fullText };
-            return updated;
-          });
+          buffer += decoder.decode(value, { stream: true });
+
+          // Parse SSE lines
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+              const evt = JSON.parse(line.slice(6));
+              if (evt.type === 'content' && evt.text) {
+                fullText += evt.text;
+                setMessages((prev) => {
+                  const updated = [...prev];
+                  updated[updated.length - 1] = { role: 'assistant', content: fullText };
+                  return updated;
+                });
+              }
+            } catch { /* skip malformed lines */ }
+          }
         }
       } else {
         // Non-streaming fallback
