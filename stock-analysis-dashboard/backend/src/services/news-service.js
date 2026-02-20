@@ -64,7 +64,7 @@ function parseRSS(xml) {
   while ((match = itemRegex.exec(xml)) !== null) {
     const block = match[0];
     const get = (tag) => {
-      const m = block.match(new RegExp(`<${tag}[^>]*><!\[CDATA\[([\s\S]*?)\]\]><\/${tag}>|<${tag}[^>]*>([^<]*)<\/${tag}>`));
+      const m = block.match(new RegExp(`<${tag}[^>]*><!\\[CDATA\\[([\\s\\S]*?)\\]\\]><\\/${tag}>|<${tag}[^>]*>([^<]*)<\\/${tag}>`));
       return m ? (m[1] || m[2] || "").trim() : "";
     };
     const title = get("title");
@@ -83,7 +83,7 @@ function parseRSS(xml) {
  * Looks for uppercase word tokens that match known tickers.
  */
 function extractTickers(text) {
-  const words = text.match(/[A-Z]{1,5}(-[A-Z])?/g) || [];
+  const words = text.match(/[A-Z]{1,5}(-[A-Z])?/g) || [];
   return [...new Set(words.filter((w) => COMMON_TICKERS.has(w)))];
 }
 
@@ -296,4 +296,3 @@ export async function getTrendingNews() {
     )
     .all();
 }
-
