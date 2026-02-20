@@ -8,11 +8,10 @@ router.get("/search", async (req, res, next) => {
   try {
     const { q } = req.query;
     if (!q || q.length < 1) {
-      return res.json([]);
+      return res.json({ results: [] });
     }
     // TODO: implement stock search service (#33)
-    // Frontend expects: { ticker, name, sector, price }[]
-    res.json([]);
+    res.json({ results: [], query: q });
   } catch (err) {
     next(err);
   }
@@ -23,8 +22,7 @@ router.get("/search", async (req, res, next) => {
 router.get("/trending", async (_req, res, next) => {
   try {
     // TODO: implement trending service (#33)
-    // Frontend expects: { ticker, name, price, change, changePercent }[]
-    res.json([]);
+    res.json({ trending: [] });
   } catch (err) {
     next(err);
   }
@@ -36,22 +34,20 @@ router.get("/:ticker", async (req, res, next) => {
   try {
     const { ticker } = req.params;
     // TODO: implement stock profile service (#33)
-    // Frontend expects: { ticker, name, price, change, changePercent, marketCap, pe, high52w, low52w, volume, avgVolume, dividendYield, beta }
-    res.json({ ticker: ticker.toUpperCase() });
+    res.json({ ticker: ticker.toUpperCase(), message: "Not implemented yet" });
   } catch (err) {
     next(err);
   }
 });
 
-// Get chart data (historical prices)
-// GET /api/stocks/:ticker/chart?range=1M
-router.get("/:ticker/chart", async (req, res, next) => {
+// Get historical prices / chart data
+// GET /api/stocks/:ticker/prices?range=1Y
+router.get("/:ticker/prices", async (req, res, next) => {
   try {
     const { ticker } = req.params;
-    const { range = "1M" } = req.query;
-    // TODO: implement chart data service (#33)
-    // Frontend expects: { date, price }[]
-    res.json([]);
+    const { range = "1Y" } = req.query;
+    // TODO: implement price history service (#33)
+    res.json({ ticker: ticker.toUpperCase(), range, prices: [] });
   } catch (err) {
     next(err);
   }
