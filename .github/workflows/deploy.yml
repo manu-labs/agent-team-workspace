@@ -1,0 +1,72 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - stock-analysis-dashboard/frontend/**
+      - dino-dress-up/**
+      - .github/workflows/deploy.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build and Deploy
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: stock-analysis-dashboard/frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: stock-analysis-dashboard/frontend
+        run: npm ci
+
+      - name: Build StockPulse Dashboard
+        working-directory: stock-analysis-dashboard/frontend
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+        run: |
+          npm run build
+          # Copy index.html to 404.html for SPA client-side routing
+          cp dist/index.html dist/404.html
+
+      - name: Assemble site
+        run: |
+          mkdir -p _site
+          # StockPulse Dashboard at root
+          cp -r stock-analysis-dashboard/frontend/dist/* _site/
+          # Dino Dress-Up at /dino-dress-up/
+          cp -r dino-dress-up _site/dino-dress-up
+
+      - name: Setup GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
