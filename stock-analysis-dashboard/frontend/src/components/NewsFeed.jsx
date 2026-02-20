@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { newsApi } from '../services/api';
 
 const PLACEHOLDER_NEWS = [
@@ -28,7 +28,36 @@ function formatTimeAgo(dateStr) {
 }
 
 function NewsCard({ headline, source, timeAgo, publishedAt, tickers, imageUrl, url }) {
+  const navigate = useNavigate();
   const displayTime = timeAgo || formatTimeAgo(publishedAt);
+  const hasUrl = Boolean(url);
+
+  // Ticker chips: when the card itself is an <a>, render chips as <button> to avoid
+  // nested anchor elements (invalid HTML, breaks keyboard nav — issue #57).
+  const tickerChips = tickers && tickers.length > 0 && (
+    <div className="flex gap-1.5 mt-2">
+      {tickers.map((t) => (
+        hasUrl ? (
+          <button
+            key={t}
+            type="button"
+            onClick={(e) => { e.preventDefault(); navigate('/stock/' + t); }}
+            className="px-1.5 py-0.5 text-xs rounded bg-surface-700 text-brand-400 hover:bg-brand-600/20 transition-colors"
+          >
+            {t}
+          </button>
+        ) : (
+          <Link
+            key={t}
+            to={'/stock/' + t}
+            className="px-1.5 py-0.5 text-xs rounded bg-surface-700 text-brand-400 hover:bg-brand-600/20 transition-colors"
+          >
+            {t}
+          </Link>
+        )
+      ))}
+    </div>
+  );
 
   const content = (
     <>
@@ -45,30 +74,17 @@ function NewsCard({ headline, source, timeAgo, publishedAt, tickers, imageUrl, u
           <span>{source}</span>
           {displayTime && (
             <>
-              <span>\u00b7</span>
+              <span>&middot;</span>
               <span>{displayTime}</span>
             </>
           )}
         </div>
-        {tickers && tickers.length > 0 && (
-          <div className="flex gap-1.5 mt-2">
-            {tickers.map((t) => (
-              <Link
-                key={t}
-                to={'/stock/' + t}
-                onClick={(e) => e.stopPropagation()}
-                className="px-1.5 py-0.5 text-xs rounded bg-surface-700 text-brand-400 hover:bg-brand-600/20 transition-colors"
-              >
-                {t}
-              </Link>
-            ))}
-          </div>
-        )}
+        {tickerChips}
       </div>
     </>
   );
 
-  if (url) {
+  if (hasUrl) {
     return (
       <a href={url} target="_blank" rel="noopener noreferrer" className="card-hover flex gap-4">
         {content}
@@ -90,7 +106,6 @@ export default function NewsFeed({ ticker }) {
       if (data && data.length > 0) {
         setNews(data);
       } else {
-        // API returned empty (service not implemented yet) — use placeholders
         setNews(PLACEHOLDER_NEWS);
       }
     } catch (err) {
