@@ -1,7 +1,7 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
-import { initDb } from "./src/db/index.js";
+import { initDb, getDb } from "./src/db/index.js";
 import { errorHandler } from "./src/middleware/error-handler.js";
 import { rateLimiter } from "./src/middleware/rate-limiter.js";
 import stockRoutes from "./src/routes/stocks.js";
@@ -16,8 +16,18 @@ import { registerNewsCronJobs } from "./src/services/news-cron.js";
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Middleware
-app.use(cors());
+// CORS — allow GitHub Pages origin in production, everything in dev
+const corsOrigin = process.env.CORS_ORIGIN || "*";
+app.use(
+  cors({
+    origin:
+      corsOrigin === "*"
+        ? true
+        : corsOrigin.split(",").map((s) => s.trim()),
+    credentials: true,
+  })
+);
+
 app.use(express.json());
 app.use(rateLimiter);
 
@@ -28,9 +38,25 @@ app.use("/api/news", newsRoutes);
 app.use("/api/favorites", favoritesRoutes);
 app.use("/api/ai", aiRoutes);
 
-// Health check
+// Health check with DB connectivity
 app.get("/api/health", (_req, res) => {
-  res.json({ status: "ok", timestamp: new Date().toISOString() });
+  try {
+    const db = getDb();
+    const row = db.prepare("SELECT 1 as ok").get();
+    res.json({
+      status: "ok",
+      timestamp: new Date().toISOString(),
+      db: row && row.ok === 1 ? "connected" : "error",
+      uptime: Math.floor(process.uptime()),
+    });
+  } catch (err) {
+    res.status(503).json({
+      status: "error",
+      timestamp: new Date().toISOString(),
+      db: "disconnected",
+      error: err.message,
+    });
+  }
 });
 
 // Error handling (must be last)
@@ -42,12 +68,12 @@ async function start() {
     initDb();
 
     // Register scheduled jobs
-    registerStockCronJobs();      // stock price refresh + trending (#33)
-    registerEarningsCronJobs();   // earnings refresh + status updates (#34)
-    registerNewsCronJobs();       // news ingestion every 10 min (#35)
+    registerStockCronJobs();
+    registerEarningsCronJobs();
+    registerNewsCronJobs();
 
-    app.listen(PORT, () => {
-      console.log(`StockPulse API running on http://localhost:${PORT}`);
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`StockPulse API running on http://0.0.0.0:${PORT}`);
     });
   } catch (err) {
     console.error("Failed to start server:", err);
