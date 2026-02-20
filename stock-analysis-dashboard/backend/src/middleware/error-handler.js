@@ -9,7 +9,7 @@ export function errorHandler(err, _req, res, _next) {
   res.status(status).json({
     error: {
       message,
-      ...(process.env.NODE_ENV \!== "production" && { stack: err.stack }),
+      ...(process.env.NODE_ENV !== "production" && { stack: err.stack }),
     },
   });
 }
