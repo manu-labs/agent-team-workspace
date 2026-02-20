@@ -13,6 +13,23 @@ export default function AiChat({ ticker }) {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Reset messages when ticker changes
+  useEffect(() => {
+    setMessages([
+      { role: 'assistant', content: 'Ask me anything about ' + ticker + '. I can analyze earnings reports, financial data, and recent news.' },
+    ]);
+    setInput('');
+    setIsStreaming(false);
+  }, [ticker]);
+
+  const updateLastMessage = (content) => {
+    setMessages((prev) => {
+      const updated = [...prev];
+      updated[updated.length - 1] = { role: 'assistant', content };
+      return updated;
+    });
+  };
+
   const sendMessage = async () => {
     const text = input.trim();
     if (!text || isStreaming) return;
@@ -22,14 +39,12 @@ export default function AiChat({ ticker }) {
     setInput('');
     setIsStreaming(true);
 
-    const assistantMsg = { role: 'assistant', content: '' };
-    setMessages((prev) => [...prev, assistantMsg]);
+    setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
 
     try {
       const res = await aiApi.chat(ticker, text);
 
       if (res.ok && res.body) {
-        // Backend sends Server-Sent Events: data: {"type":"content","text":"..."}
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let fullText = '';
@@ -40,7 +55,6 @@ export default function AiChat({ ticker }) {
           if (done) break;
           buffer += decoder.decode(value, { stream: true });
 
-          // Parse SSE lines
           const lines = buffer.split('\n');
           buffer = lines.pop() || '';
           for (const line of lines) {
@@ -49,31 +63,31 @@ export default function AiChat({ ticker }) {
               const evt = JSON.parse(line.slice(6));
               if (evt.type === 'content' && evt.text) {
                 fullText += evt.text;
-                setMessages((prev) => {
-                  const updated = [...prev];
-                  updated[updated.length - 1] = { role: 'assistant', content: fullText };
-                  return updated;
-                });
+                updateLastMessage(fullText);
+              } else if (evt.type === 'error') {
+                updateLastMessage(evt.message || 'An error occurred. Please try again.');
               }
+              // 'start' and 'done' events are informational — no action needed
             } catch { /* skip malformed lines */ }
           }
         }
+
+        // If we got no content at all, show a message
+        if (!fullText) {
+          updateLastMessage('No response received. The AI service may not be configured.');
+        }
       } else {
         // Non-streaming fallback
-        const data = await res.json().catch(() => ({ response: 'Sorry, I could not process your request.' }));
-        setMessages((prev) => {
-          const updated = [...prev];
-          updated[updated.length - 1] = { role: 'assistant', content: data.response || data.error || 'Error' };
-          return updated;
-        });
+        const data = await res.json().catch(() => ({}));
+        if (data.error?.message) {
+          updateLastMessage(data.error.message);
+        } else {
+          updateLastMessage(data.response || 'Sorry, I could not process your request.');
+        }
       }
     } catch (err) {
       console.error('AI chat error:', err);
-      setMessages((prev) => {
-        const updated = [...prev];
-        updated[updated.length - 1] = { role: 'assistant', content: 'Sorry, something went wrong. Please try again.' };
-        return updated;
-      });
+      updateLastMessage('Sorry, something went wrong. Please try again.');
     } finally {
       setIsStreaming(false);
     }
@@ -89,12 +103,12 @@ export default function AiChat({ ticker }) {
   return (
     <div className="card flex flex-col h-[500px]">
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto space-y-4 mb-4 pr-2">
+      <div className="flex-1 overflow-y-auto space-y-4 mb-4 pr-2 scrollbar-thin">
         {messages.map((msg, i) => (
           <div key={i} className={"flex " + (msg.role === 'user' ? 'justify-end' : 'justify-start')}>
             <div
               className={
-                "max-w-[80%] rounded-xl px-4 py-2.5 text-sm leading-relaxed " +
+                "max-w-[80%] rounded-xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap " +
                 (msg.role === 'user'
                   ? "bg-brand-600 text-white"
                   : "bg-surface-700 text-surface-200")
