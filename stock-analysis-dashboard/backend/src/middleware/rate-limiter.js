@@ -18,7 +18,7 @@ export function rateLimiter(req, res, next) {
   const now = Date.now();
 
   let entry = clients.get(key);
-  if (\!entry || now - entry.windowStart > windowMs) {
+  if (!entry || now - entry.windowStart > windowMs) {
     entry = { windowStart: now, count: 0 };
     clients.set(key, entry);
   }
