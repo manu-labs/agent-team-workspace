@@ -2,9 +2,11 @@
 -- Client-side camera system for Operation Greenland.
 -- Smooth top-down/isometric follow camera with zoom, overview mode (Tab hold),
 -- and procedural shake effects.  Purely cosmetic — no gameplay state changes.
+-- During Lobby (no ship assigned), shows a fixed elevated dock view.
 
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Camera = workspace.CurrentCamera
 
@@ -23,12 +25,22 @@ local CONFIG = {
 	shakeVertScale = 1.5, -- max vertical shake offset (studs)
 }
 
+local LOBBY_CAM_POS = Vector3.new(0, 80, -7700)
+local LOBBY_CAM_LOOK = Vector3.new(0, 0, -7400)
+
 -- ─── State ───────────────────────────────────────────────────────────────────
 
 local shipModel = nil
 local currentZoom = CONFIG.followHeightDefault
 local overviewActive = false
 local shakeMag = 0
+
+-- ─── Lobby view ──────────────────────────────────────────────────────────────
+
+local function setLobbyView()
+	Camera.CameraType = Enum.CameraType.Scriptable
+	Camera.CFrame = CFrame.lookAt(LOBBY_CAM_POS, LOBBY_CAM_LOOK)
+end
 
 -- ─── Public API ──────────────────────────────────────────────────────────────
 
@@ -37,6 +49,12 @@ local CameraController = {}
 function CameraController.setShip(model)
 	shipModel = model
 	print("[CameraController] Ship model set:", model.Name)
+end
+
+-- Called when round ends and game returns to Lobby — clears ship and restores dock view.
+function CameraController.clearShip()
+	shipModel = nil
+	setLobbyView()
 end
 
 -- Trigger camera shake.  magnitude: 0..1 (0.3 = weapon fire, 0.7+ = heavy hit)
@@ -119,14 +137,24 @@ end
 -- ─── Init ────────────────────────────────────────────────────────────────────
 
 function CameraController.init()
-	Camera.CameraType = Enum.CameraType.Scriptable
+	setLobbyView()
 
 	UserInputService.InputBegan:Connect(onInputBegan)
 	UserInputService.InputEnded:Connect(onInputEnded)
 	UserInputService.InputChanged:Connect(onInputChanged)
 	RunService.RenderStepped:Connect(onRenderStepped)
 
-	print("[CameraController] Initialized — follow-cam, zoom, overview, shake active.")
+	local Remotes = ReplicatedStorage:WaitForChild("Remotes", 10)
+	local GameStateChangedRE = Remotes and Remotes:WaitForChild("GameStateChanged", 10)
+	if GameStateChangedRE then
+		GameStateChangedRE.OnClientEvent:Connect(function(newState)
+			if newState == "Lobby" then
+				CameraController.clearShip()
+			end
+		end)
+	end
+
+	print("[CameraController] Initialized — lobby view active, follow-cam/zoom/overview/shake ready.")
 end
 
 return CameraController
