@@ -9,6 +9,11 @@ local Players = game:GetService("Players")
 
 print("[Server] Operation Greenland server starting...")
 
+-- ─── Build world and ship models (run before system init) ─────────────────────
+
+require(script.ShipModelBuilder).build()
+require(script.WorldBuilder).build()
+
 -- ─── Require systems ──────────────────────────────────────────────────────────
 
 local GameManager = require(script.GameManager)
