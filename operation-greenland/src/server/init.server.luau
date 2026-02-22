@@ -7,6 +7,11 @@
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 
+-- Disable default humanoid character spawning. Operation Greenland is a
+-- ship-based game — players control ships, not Roblox characters. Without
+-- this line, Roblox auto-spawns a humanoid that falls to its death on join.
+Players.CharacterAutoLoads = false
+
 print("[Server] Operation Greenland server starting...")
 
 -- ─── Build world and ship models (run before system init) ─────────────────────
