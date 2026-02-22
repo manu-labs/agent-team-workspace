@@ -2,8 +2,8 @@
   "name": "agent-team-workspace",
   "private": true,
   "scripts": {
-    "build": "cd ${APP_DIR:-stock-analysis-dashboard/backend} && npm install",
-    "start": "cd ${APP_DIR:-stock-analysis-dashboard/backend} && node server.js"
+    "build": "if [ \"$RAILWAY_SERVICE_NAME\" = \"space-tetris-api\" ]; then cd space-tetris/backend && npm install; else cd stock-analysis-dashboard/backend && npm install; fi",
+    "start": "if [ \"$RAILWAY_SERVICE_NAME\" = \"space-tetris-api\" ]; then cd space-tetris/backend && node server.js; else cd stock-analysis-dashboard/backend && node server.js; fi"
   },
   "engines": {
     "node": ">=20.0.0"
