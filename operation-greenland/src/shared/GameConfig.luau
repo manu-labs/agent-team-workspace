@@ -18,10 +18,17 @@ GameConfig.TEAMS = {
 	{ Name = "US Fleet", Color = "Bright blue" },
 }
 
--- Round settings
-GameConfig.ROUND_DURATION = 600       -- seconds (10 minutes)
-GameConfig.RESPAWN_DELAY = 8          -- seconds before ship respawns
-GameConfig.COUNTDOWN_DURATION = 10    -- pre-round countdown seconds
+-- Phase durations (seconds) — mirrors GameManager constants, centralised here
+-- so both server systems and UI can reference the same values.
+GameConfig.LOBBY_COUNTDOWN   = 30   -- pre-start countdown in Lobby phase
+GameConfig.MIN_PLAYERS       = 1    -- minimum players to start the countdown
+GameConfig.DEPLOY_DURATION   = 30   -- ship selection phase (Deploying)
+GameConfig.SAILING_DURATION  = 60   -- ocean crossing phase (Sailing)
+GameConfig.COMBAT_DURATION   = 300  -- main combat phase (5 minutes)
+GameConfig.END_SCREEN_DURATION = 10 -- Victory/Defeat display before returning to Lobby
+
+-- Respawn
+GameConfig.RESPAWN_DELAY = 8        -- seconds before a destroyed ship respawns
 
 -- Scoring
 GameConfig.SCORE_PER_ZONE_PER_SECOND = 1   -- points per held zone per second
