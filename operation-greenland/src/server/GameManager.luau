@@ -1,17 +1,18 @@
 --[[
-	GameManager — Server-side game state machine and round lifecycle.
+	GameManager -- Server-side game state machine and round lifecycle.
 
-	Owns the core game loop: Lobby → Deploying → Sailing → Combat → Victory/Defeat → Lobby.
+	Owns the core game loop: Lobby -> Deploying -> Sailing -> Combat -> Victory/Defeat -> Lobby.
 	Tracks connected players and their ship selections.
-	Creates and manages all RemoteEvents for server↔client communication.
+	Creates and manages all RemoteEvents for server-client communication.
 
 	Public API:
-		GameManager.Init()                          — set up remotes, connect events, enter Lobby
-		GameManager.Update(dt)                      — call every Heartbeat frame
-		GameManager.GetState() → GameState
-		GameManager.GetPlayerData(player) → PlayerData?
-		GameManager.GetAllPlayerData() → { [number]: PlayerData }
-		GameManager.GetRemotes() → { [string]: RemoteEvent }
+		GameManager.Init()                          -- set up remotes, connect events, enter Lobby
+		GameManager.Update(dt)                      -- call every Heartbeat frame
+		GameManager.GetState() -> GameState
+		GameManager.GetPhaseTimeRemaining() -> number
+		GameManager.GetPlayerData(player) -> PlayerData?
+		GameManager.GetAllPlayerData() -> { [number]: PlayerData }
+		GameManager.GetRemotes() -> { [string]: RemoteEvent }
 		GameManager.AddScore(player, amount)
 		GameManager.TriggerVictory()
 		GameManager.TriggerDefeat()
@@ -51,18 +52,38 @@ local VALID_SHIP_TYPES = {
 }
 
 --- Names of all RemoteEvents the game uses.
+--- Grouped by direction and system.
 local REMOTE_NAMES = {
-	-- server → client
-	"GameStateChanged",
-	"ScoreUpdate",
-	"ShipSpawned",
-	"ShipDestroyed",
-	"DamageDealt",
-	"TerritoryUpdate",
-	"HazardUpdate",
-	-- client → server
-	"PlayerSelectShip",
-	"PlayerReady",
+	-- Server -> Client: Game phase and timing
+	"SetGamePhase",         -- (phaseName: string)
+	"GameTimerUpdated",     -- (secondsRemaining: number)
+	"ReadyCountUpdated",    -- (readyCount: number, totalPlayers: number)
+	"RoundEnded",           -- (result: string, stats: table)
+
+	-- Server -> Client: Ship and player state (fired by ShipSystem)
+	"ShipSpawned",          -- (userId: number, shipType: string, position: Vector3)
+	"ShipDestroyed",        -- (userId: number, killerUserId: number?)
+	"HealthUpdated",        -- (currentHP: number, maxHP: number) per-player
+	"SpeedUpdated",         -- (throttlePercent: number) per-player
+	"MinimapUpdated",       -- (ships: {{userId, x, z}}) broadcast
+
+	-- Server -> Client: Combat (fired by CombatSystem)
+	"DamageDealt",          -- (eventType: string, data: table)
+	"CooldownUpdated",      -- (weaponId: string, remaining: number, total: number) per-player
+	"KillFeedEvent",        -- (message: string)
+
+	-- Server -> Client: Territory and score (fired by TerritorySystem)
+	"TerritoryUpdated",     -- (zones: table)
+	"ScoreboardUpdated",    -- (players: table)
+
+	-- Server -> Client: Hazards (fired by HazardSystem)
+	"HazardUpdate",         -- (hazards: table)
+
+	-- Client -> Server
+	"PlayerSelectShip",     -- (shipType: string)
+	"PlayerReady",          -- ()
+	"FireWeapon",           -- (weaponId: string, origin: Vector3, direction: Vector3)
+	"PlayAgain",            -- ()
 }
 
 ------------------------------------------------------------------------
@@ -77,6 +98,10 @@ local playerDataMap: { [number]: PlayerData } = {}
 local lobbyTimer: number = 0
 local phaseTimer: number = 0
 local remotes: { [string]: RemoteEvent } = {}
+
+-- Timer broadcast throttle
+local timerBroadcastAccum: number = 0
+local TIMER_BROADCAST_INTERVAL = 1 -- send timer update every 1 second
 
 ------------------------------------------------------------------------
 -- RemoteEvent setup
@@ -112,10 +137,18 @@ function GameManager.OnPlayerAdded(player: Player)
 		isReady = false,
 		score = 0,
 	}
+	-- If in lobby, broadcast updated ready count
+	if currentState == "Lobby" then
+		GameManager._BroadcastReadyCount()
+	end
 end
 
 function GameManager.OnPlayerRemoving(player: Player)
 	playerDataMap[player.UserId] = nil
+	-- Update ready count after player leaves
+	if currentState == "Lobby" then
+		GameManager._BroadcastReadyCount()
+	end
 end
 
 function GameManager.GetPlayerData(player: Player): PlayerData?
@@ -127,7 +160,7 @@ function GameManager.GetAllPlayerData(): { [number]: PlayerData }
 end
 
 ------------------------------------------------------------------------
--- Broadcast helper
+-- Broadcast helpers
 ------------------------------------------------------------------------
 
 local function broadcastToAll(remoteName: string, ...: any)
@@ -142,6 +175,25 @@ local function broadcastToAll(remoteName: string, ...: any)
 	end
 end
 
+local function fireToPlayer(remoteName: string, player: Player, ...: any)
+	local remote = remotes[remoteName]
+	if remote and player and player.Parent then
+		remote:FireClient(player, ...)
+	end
+end
+
+function GameManager._BroadcastReadyCount()
+	local playerCount = 0
+	local readyCount = 0
+	for _, data in playerDataMap do
+		playerCount += 1
+		if data.isReady then
+			readyCount += 1
+		end
+	end
+	broadcastToAll("ReadyCountUpdated", readyCount, playerCount)
+end
+
 ------------------------------------------------------------------------
 -- State machine
 ------------------------------------------------------------------------
@@ -150,15 +202,23 @@ function GameManager.GetState(): GameState
 	return currentState
 end
 
+function GameManager.GetPhaseTimeRemaining(): number
+	if currentState == "Lobby" then
+		return lobbyTimer
+	end
+	return phaseTimer
+end
+
 function GameManager.TransitionTo(newState: GameState)
 	local oldState = currentState
 	currentState = newState
 	phaseTimer = 0
+	timerBroadcastAccum = 0
 
-	print(("[GameManager] %s → %s"):format(oldState, newState))
+	print(("[GameManager] %s -> %s"):format(oldState, newState))
 
-	-- Notify all clients
-	broadcastToAll("GameStateChanged", newState, oldState)
+	-- Notify all clients of phase change
+	broadcastToAll("SetGamePhase", newState)
 
 	-- State entry logic
 	if newState == "Lobby" then
@@ -170,10 +230,13 @@ function GameManager.TransitionTo(newState: GameState)
 	elseif newState == "Combat" then
 		GameManager._EnterCombat()
 	elseif newState == "Victory" then
-		GameManager._EnterEndScreen()
+		GameManager._EnterEndScreen("Victory")
 	elseif newState == "Defeat" then
-		GameManager._EnterEndScreen()
+		GameManager._EnterEndScreen("Defeat")
 	end
+
+	-- Send initial timer
+	broadcastToAll("GameTimerUpdated", GameManager.GetPhaseTimeRemaining())
 end
 
 ------------------------------------------------------------------------
@@ -187,6 +250,7 @@ function GameManager._EnterLobby()
 		data.isReady = false
 		data.score = 0
 	end
+	GameManager._BroadcastReadyCount()
 end
 
 function GameManager._EnterDeploying()
@@ -201,8 +265,21 @@ function GameManager._EnterCombat()
 	phaseTimer = COMBAT_DURATION
 end
 
-function GameManager._EnterEndScreen()
+function GameManager._EnterEndScreen(result: string)
 	phaseTimer = END_SCREEN_DURATION
+
+	-- Build round-end stats for the UI
+	local stats = {}
+	for userId, data in playerDataMap do
+		table.insert(stats, {
+			userId = userId,
+			displayName = data.player and data.player.DisplayName or "Unknown",
+			shipType = data.shipType,
+			score = data.score,
+		})
+	end
+
+	broadcastToAll("RoundEnded", result, stats)
 end
 
 ------------------------------------------------------------------------
@@ -221,6 +298,13 @@ function GameManager.Update(dt: number)
 	elseif currentState == "Victory" or currentState == "Defeat" then
 		GameManager._UpdateEndScreen(dt)
 	end
+
+	-- Periodic timer broadcast (every TIMER_BROADCAST_INTERVAL seconds)
+	timerBroadcastAccum += dt
+	if timerBroadcastAccum >= TIMER_BROADCAST_INTERVAL then
+		timerBroadcastAccum -= TIMER_BROADCAST_INTERVAL
+		broadcastToAll("GameTimerUpdated", math.ceil(GameManager.GetPhaseTimeRemaining()))
+	end
 end
 
 function GameManager._UpdateLobby(dt: number)
@@ -233,7 +317,7 @@ function GameManager._UpdateLobby(dt: number)
 		end
 	end
 
-	-- All players ready → skip countdown
+	-- All players ready: skip countdown
 	if playerCount >= MIN_PLAYERS and readyCount == playerCount then
 		GameManager.TransitionTo("Deploying")
 		return
@@ -272,7 +356,7 @@ end
 
 function GameManager._UpdateCombat(dt: number)
 	phaseTimer -= dt
-	-- Time runs out without capturing all territory → defeat
+	-- Time runs out without capturing all territory: defeat
 	if phaseTimer <= 0 then
 		GameManager.TransitionTo("Defeat")
 	end
@@ -294,12 +378,18 @@ function GameManager.AddScore(player: Player, amount: number)
 	local data = playerDataMap[player.UserId]
 	if data then
 		data.score += amount
-		broadcastToAll("ScoreUpdate", player.UserId, data.score)
+		-- ScoreboardUpdated with full player table will be sent by
+		-- TerritorySystem at its own tick rate. Individual score changes
+		-- also trigger a targeted update.
+		fireToPlayer("ScoreboardUpdated", player, { {
+			userId = player.UserId,
+			score = data.score,
+		} })
 	end
 end
 
 ------------------------------------------------------------------------
--- Client → server handlers
+-- Client -> server handlers
 ------------------------------------------------------------------------
 
 function GameManager.OnPlayerSelectShip(player: Player, shipType: string)
@@ -315,6 +405,16 @@ function GameManager.OnPlayerReady(player: Player)
 	local data = playerDataMap[player.UserId]
 	if not data then return end
 	if currentState ~= "Lobby" then return end
+
+	data.isReady = true
+	GameManager._BroadcastReadyCount()
+end
+
+function GameManager.OnPlayAgain(player: Player)
+	-- Mark the player as ready for the next round.
+	local data = playerDataMap[player.UserId]
+	if not data then return end
+	if currentState ~= "Victory" and currentState ~= "Defeat" then return end
 
 	data.isReady = true
 end
@@ -351,13 +451,17 @@ function GameManager.Init()
 		GameManager.OnPlayerAdded(player)
 	end
 
-	-- Client → server events
+	-- Client -> server events
 	r.PlayerSelectShip.OnServerEvent:Connect(function(player, shipType)
 		GameManager.OnPlayerSelectShip(player, shipType)
 	end)
 
 	r.PlayerReady.OnServerEvent:Connect(function(player)
 		GameManager.OnPlayerReady(player)
+	end)
+
+	r.PlayAgain.OnServerEvent:Connect(function(player)
+		GameManager.OnPlayAgain(player)
 	end)
 
 	-- Start in Lobby
