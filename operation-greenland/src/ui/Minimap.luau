@@ -9,14 +9,18 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local LocalPlayer = Players.LocalPlayer
 
+local GameConfig = require(ReplicatedStorage:WaitForChild("Shared", 10):WaitForChild("GameConfig", 10))
+
 local Remotes = ReplicatedStorage:WaitForChild("Remotes", 10)
 local TerritoryUpdateEvent = Remotes and Remotes:WaitForChild("TerritoryUpdate", 10)
 local MinimapUpdatedEvent = Remotes and Remotes:WaitForChild("MinimapUpdated", 10)
 local GameStateChangedEvent = Remotes and Remotes:WaitForChild("GameStateChanged", 10)
 
 -- ─── Config ──────────────────────────────────────────────────────────────────
--- TODO: import MAP_BOUNDS from GameConfig (#86) once merged.
-local MAP_BOUNDS = { min = Vector2.new(-500, -500), max = Vector2.new(500, 500) }
+local MAP_BOUNDS = {
+	min = Vector2.new(GameConfig.MAP_BOUNDS.MinX, GameConfig.MAP_BOUNDS.MinZ),
+	max = Vector2.new(GameConfig.MAP_BOUNDS.MaxX, GameConfig.MAP_BOUNDS.MaxZ),
+}
 local MINIMAP_PX = 200
 
 local ZONE_COLORS = {
