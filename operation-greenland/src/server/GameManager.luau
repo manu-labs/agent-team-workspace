@@ -64,8 +64,8 @@ local REMOTE_NAMES = {
 
 	-- Server -> Client: Ship and player state (fired by ShipSystem)
 	"ShipSpawned",          -- (data: table) new ship entered the world
-	"ShipDestroyed",        -- (data: table) ship sunk, trigger client animation
-	"ShipDespawned",        -- (data: table) ship removed from world
+	"ShipDestroyed",        -- (data: table) ship sunk, trigger client sink animation
+	"ShipDespawned",        -- (data: table) ship removed from world (disconnect/cleanup)
 	"ShipStateUpdate",      -- (snapshot: table) bulk position/health snapshot
 	"HealthUpdated",        -- (currentHP: number, maxHP: number) per-player
 	"SpeedUpdated",         -- (throttlePercent: number) per-player
@@ -92,6 +92,7 @@ local REMOTE_NAMES = {
 	"PlayerReady",          -- ()
 	"ShipMoveInput",        -- (inputData: {forward: number, turn: number})
 	"FireWeapon",           -- (weaponId: string, origin: Vector3, direction: Vector3)
+	"UseAbility",           -- (abilityId: string) special ability activation (right-click)
 	"PlayAgain",            -- ()
 }
 
