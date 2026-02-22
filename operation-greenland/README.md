@@ -39,18 +39,26 @@ rojo serve
 
 ```
 operation-greenland/
-├── default.project.json   # Rojo project config — maps folders to Roblox services
+├── default.project.json        # Rojo project config
 ├── README.md
 └── src/
-    ├── server/            # → ServerScriptService  (server-only code)
-    │   └── init.luau      #   Bootstrap / entry point
-    ├── client/            # → StarterPlayerScripts  (per-player client code)
-    │   └── init.luau
-    ├── shared/            # → ReplicatedStorage  (modules shared by server + client)
-    │   └── init.luau
-    └── ui/                # → StarterGui  (UI screens and HUD widgets)
-        └── init.luau
+    ├── server/                 # → ServerScriptService  (server-only code)
+    │   └── init.server.luau    #   Bootstrap Script (auto-runs on server)
+    ├── client/                 # → StarterPlayerScripts  (per-player client code)
+    │   └── init.client.luau    #   Bootstrap LocalScript (auto-runs per player)
+    ├── shared/                 # → ReplicatedStorage  (modules shared by server + client)
+    │   └── init.luau           #   ModuleScript (stateless data & utilities)
+    └── ui/                     # → StarterGui  (UI screens and HUD widgets)
+        └── init.client.luau    #   Bootstrap LocalScript (auto-runs per player)
 ```
+
+### Rojo file naming conventions
+
+| Extension | Roblox Instance | Use for |
+|-----------|----------------|---------|
+| `.server.luau` | Script | Server-side code that auto-runs |
+| `.client.luau` | LocalScript | Client-side code that auto-runs |
+| `.luau` | ModuleScript | Shared modules, systems, utilities (must be `require()`d) |
 
 ### Where things go
 
@@ -70,7 +78,7 @@ operation-greenland/
 - `src/shared/` → `ReplicatedStorage.Shared`
 - `src/ui/` → `StarterGui.UI`
 
-Each folder uses an `init.luau` which Rojo treats as the ModuleScript for that directory node.
+The `init.server.luau` / `init.client.luau` files make their parent folders into Script / LocalScript instances. The `init.luau` in `shared/` makes it a ModuleScript. Sibling `.luau` files become child ModuleScripts.
 
 ## Development Workflow
 
