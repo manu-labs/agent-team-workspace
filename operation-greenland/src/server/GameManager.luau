@@ -14,6 +14,9 @@
 		GameManager.GetAllPlayerData() -> { [number]: PlayerData }
 		GameManager.GetRemotes() -> { [string]: RemoteEvent }
 		GameManager.AddScore(player, amount)
+		GameManager.AddKill(player)
+		GameManager.AddDeath(player)
+		GameManager.AddCapture(player)
 		GameManager.TriggerVictory()
 		GameManager.TriggerDefeat()
 ]]
@@ -32,6 +35,9 @@ export type PlayerData = {
 	shipType: string?,
 	isReady: boolean,
 	score: number,
+	kills: number,
+	deaths: number,
+	captures: number,
 }
 
 ------------------------------------------------------------------------
@@ -61,6 +67,7 @@ local REMOTE_NAMES = {
 	"GameTimerUpdated",     -- (secondsRemaining: number)
 	"ReadyCountUpdated",    -- (readyCount: number, totalPlayers: number)
 	"RoundEnded",           -- (result: string, stats: table)
+	"ScoreboardUpdated",    -- (players: table) full player table for scoreboard UI
 
 	-- Server -> Client: Ship and player state (fired by ShipSystem)
 	"ShipSpawned",          -- (data: table) new ship entered the world
@@ -109,9 +116,13 @@ local lobbyTimer: number = 0
 local phaseTimer: number = 0
 local remotes: { [string]: RemoteEvent } = {}
 
--- Timer broadcast throttle
+-- Timer broadcast throttle (1s)
 local timerBroadcastAccum: number = 0
-local TIMER_BROADCAST_INTERVAL = 1 -- send timer update every 1 second
+local TIMER_BROADCAST_INTERVAL = 1
+
+-- Scoreboard broadcast throttle (2s)
+local scoreboardBroadcastAccum: number = 0
+local SCOREBOARD_BROADCAST_INTERVAL = 2
 
 ------------------------------------------------------------------------
 -- RemoteEvent setup
@@ -146,6 +157,9 @@ function GameManager.OnPlayerAdded(player: Player)
 		shipType = nil,
 		isReady = false,
 		score = 0,
+		kills = 0,
+		deaths = 0,
+		captures = 0,
 	}
 	if currentState == "Lobby" then
 		GameManager._BroadcastReadyCount()
@@ -202,6 +216,22 @@ function GameManager._BroadcastReadyCount()
 	broadcastToAll("ReadyCountUpdated", readyCount, playerCount)
 end
 
+--- Build and broadcast the full scoreboard table to all clients.
+function GameManager._BroadcastScoreboard()
+	local players = {}
+	for _, data in playerDataMap do
+		table.insert(players, {
+			name = data.player and data.player.DisplayName or "Unknown",
+			shipType = data.shipType or "",
+			kills = data.kills,
+			deaths = data.deaths,
+			captures = data.captures,
+			score = data.score,
+		})
+	end
+	broadcastToAll("ScoreboardUpdated", players)
+end
+
 ------------------------------------------------------------------------
 -- State machine
 ------------------------------------------------------------------------
@@ -222,6 +252,7 @@ function GameManager.TransitionTo(newState: GameState)
 	currentState = newState
 	phaseTimer = 0
 	timerBroadcastAccum = 0
+	scoreboardBroadcastAccum = 0
 
 	print(("[GameManager] %s -> %s"):format(oldState, newState))
 
@@ -257,6 +288,9 @@ function GameManager._EnterLobby()
 		data.shipType = nil
 		data.isReady = false
 		data.score = 0
+		data.kills = 0
+		data.deaths = 0
+		data.captures = 0
 	end
 	GameManager._BroadcastReadyCount()
 end
@@ -284,10 +318,16 @@ function GameManager._EnterEndScreen(result: string)
 			displayName = data.player and data.player.DisplayName or "Unknown",
 			shipType = data.shipType,
 			score = data.score,
+			kills = data.kills,
+			deaths = data.deaths,
+			captures = data.captures,
 		})
 	end
 
 	broadcastToAll("RoundEnded", result, stats)
+
+	-- Send final scoreboard
+	GameManager._BroadcastScoreboard()
 end
 
 ------------------------------------------------------------------------
@@ -307,11 +347,20 @@ function GameManager.Update(dt: number)
 		GameManager._UpdateEndScreen(dt)
 	end
 
-	-- Periodic timer broadcast
+	-- Periodic timer broadcast (every 1s)
 	timerBroadcastAccum += dt
 	if timerBroadcastAccum >= TIMER_BROADCAST_INTERVAL then
 		timerBroadcastAccum -= TIMER_BROADCAST_INTERVAL
 		broadcastToAll("GameTimerUpdated", math.ceil(GameManager.GetPhaseTimeRemaining()))
+	end
+
+	-- Periodic scoreboard broadcast (every 2s, only during active gameplay)
+	if currentState == "Sailing" or currentState == "Combat" then
+		scoreboardBroadcastAccum += dt
+		if scoreboardBroadcastAccum >= SCOREBOARD_BROADCAST_INTERVAL then
+			scoreboardBroadcastAccum -= SCOREBOARD_BROADCAST_INTERVAL
+			GameManager._BroadcastScoreboard()
+		end
 	end
 end
 
@@ -379,7 +428,7 @@ function GameManager._UpdateEndScreen(dt: number)
 end
 
 ------------------------------------------------------------------------
--- Score
+-- Score and stats
 ------------------------------------------------------------------------
 
 function GameManager.AddScore(player: Player, amount: number)
@@ -387,6 +436,27 @@ function GameManager.AddScore(player: Player, amount: number)
 	if data then
 		data.score += amount
 		broadcastToAll("ScoreUpdate", player.UserId, data.score)
+	end
+end
+
+function GameManager.AddKill(player: Player)
+	local data = playerDataMap[player.UserId]
+	if data then
+		data.kills += 1
+	end
+end
+
+function GameManager.AddDeath(player: Player)
+	local data = playerDataMap[player.UserId]
+	if data then
+		data.deaths += 1
+	end
+end
+
+function GameManager.AddCapture(player: Player)
+	local data = playerDataMap[player.UserId]
+	if data then
+		data.captures += 1
 	end
 end
 
