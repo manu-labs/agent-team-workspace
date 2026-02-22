@@ -171,7 +171,7 @@ function TerritorySystem.broadcastState()
 			Contested       = zone.Contested,
 		})
 	end
-	_remotes["TerritoryUpdated"]:FireAllClients(snapshot)
+	_remotes["TerritoryUpdate"]:FireAllClients(snapshot)
 end
 
 -- ─── Queries ──────────────────────────────────────────────────────────────────
