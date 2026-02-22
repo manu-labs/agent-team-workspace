@@ -44,11 +44,11 @@ export type PlayerData = {
 -- Constants
 ------------------------------------------------------------------------
 
-local LOBBY_COUNTDOWN   = 30   -- seconds before auto-start
-local MIN_PLAYERS       = 1    -- minimum to start countdown
-local DEPLOY_DURATION   = 30   -- ship selection phase
-local SAILING_DURATION  = 60   -- ocean crossing phase
-local COMBAT_DURATION   = 300  -- 5 min combat timer
+local LOBBY_COUNTDOWN = 30 -- seconds before auto-start
+local MIN_PLAYERS = 1 -- minimum to start countdown
+local DEPLOY_DURATION = 30 -- ship selection phase
+local SAILING_DURATION = 60 -- ocean crossing phase
+local COMBAT_DURATION = 300 -- 5 min combat timer
 local END_SCREEN_DURATION = 10 -- victory/defeat display
 
 local VALID_SHIP_TYPES = {
@@ -63,44 +63,44 @@ local VALID_SHIP_TYPES = {
 --- their own. This keeps the contract in one place for the frontend.
 local REMOTE_NAMES = {
 	-- Server -> Client: Game phase and timing (fired by GameManager)
-	"GameStateChanged",     -- (newState: string, oldState: string)
-	"GameTimerUpdated",     -- (secondsRemaining: number)
-	"ReadyCountUpdated",    -- (readyCount: number, totalPlayers: number)
-	"RoundEnded",           -- (result: string, stats: table)
-	"ScoreboardUpdated",    -- (players: table) full player table for scoreboard UI
+	"GameStateChanged", -- (newState: string, oldState: string)
+	"GameTimerUpdated", -- (secondsRemaining: number)
+	"ReadyCountUpdated", -- (readyCount: number, totalPlayers: number)
+	"RoundEnded", -- (result: string, stats: table)
+	"ScoreboardUpdated", -- (players: table) full player table for scoreboard UI
 
 	-- Server -> Client: Ship and player state (fired by ShipSystem)
-	"ShipSpawned",          -- (data: table) new ship entered the world
-	"ShipDestroyed",        -- (data: table) ship sunk, trigger client sink animation
-	"ShipDespawned",        -- (data: table) ship removed from world (disconnect/cleanup)
-	"ShipStateUpdate",      -- (snapshot: table) bulk position/health snapshot
-	"HealthUpdated",        -- (currentHP: number, maxHP: number) per-player
-	"SpeedUpdated",         -- (throttlePercent: number) per-player
-	"MinimapUpdated",       -- (ships: {{userId, x, z}}) broadcast
-	"HealAuraActive",       -- (data: table) supply ship heal pulse for VFX
+	"ShipSpawned", -- (data: table) new ship entered the world
+	"ShipDestroyed", -- (data: table) ship sunk, trigger client sink animation
+	"ShipDespawned", -- (data: table) ship removed from world (disconnect/cleanup)
+	"ShipStateUpdate", -- (snapshot: table) bulk position/health snapshot
+	"HealthUpdated", -- (currentHP: number, maxHP: number) per-player
+	"SpeedUpdated", -- (throttlePercent: number) per-player
+	"MinimapUpdated", -- (ships: {{userId, x, z}}) broadcast
+	"HealAuraActive", -- (data: table) supply ship heal pulse for VFX
 
 	-- Server -> Client: Combat (fired by CombatSystem)
-	"DamageDealt",          -- (eventType: string, data: table)
-	"CooldownUpdated",      -- (weaponId: string, remaining: number, total: number) per-player
-	"KillFeedEvent",        -- (message: string)
+	"DamageDealt", -- (eventType: string, data: table)
+	"CooldownUpdated", -- (weaponId: string, remaining: number, total: number) per-player
+	"KillFeedEvent", -- (message: string)
 
 	-- Server -> Client: Territory and score (fired by TerritorySystem)
-	"TerritoryUpdate",      -- (zones: table) full zone snapshot for minimap
-	"ZoneCaptured",         -- (data: table) zone ownership changed
-	"ScoreUpdate",          -- (userId: number, score: number)
+	"TerritoryUpdate", -- (zones: table) full zone snapshot for minimap
+	"ZoneCaptured", -- (data: table) zone ownership changed
+	"ScoreUpdate", -- (userId: number, score: number)
 
 	-- Server -> Client: Hazards (fired by HazardSystem)
-	"HazardUpdate",         -- (hazards: table) iceberg + storm positions
-	"StormEntered",         -- (data: table) per-player: ship entered a storm (fog VFX)
-	"StormExited",          -- (data: table) per-player: ship left a storm
+	"HazardUpdate", -- (hazards: table) iceberg + storm positions
+	"StormEntered", -- (data: table) per-player: ship entered a storm (fog VFX)
+	"StormExited", -- (data: table) per-player: ship left a storm
 
 	-- Client -> Server
-	"PlayerSelectShip",     -- (shipType: string)
-	"PlayerReady",          -- ()
-	"ShipMoveInput",        -- (inputData: {forward: number, turn: number})
-	"FireWeapon",           -- (weaponId: string, origin: Vector3, direction: Vector3)
-	"UseAbility",           -- (abilityId: string) special ability activation (right-click)
-	"PlayAgain",            -- ()
+	"PlayerSelectShip", -- (shipType: string)
+	"PlayerReady", -- ()
+	"ShipMoveInput", -- (inputData: {forward: number, turn: number})
+	"FireWeapon", -- (weaponId: string, origin: Vector3, direction: Vector3)
+	"UseAbility", -- (abilityId: string) special ability activation (right-click)
+	"PlayAgain", -- ()
 }
 
 ------------------------------------------------------------------------
@@ -194,13 +194,6 @@ local function broadcastToAll(remoteName: string, ...: any)
 		if data.player and data.player.Parent then
 			remote:FireClient(data.player, ...)
 		end
-	end
-end
-
-local function fireToPlayer(remoteName: string, player: Player, ...: any)
-	local remote = remotes[remoteName]
-	if remote and player and player.Parent then
-		remote:FireClient(player, ...)
 	end
 end
 
@@ -466,17 +459,27 @@ end
 
 function GameManager.OnPlayerSelectShip(player: Player, shipType: string)
 	local data = playerDataMap[player.UserId]
-	if not data then return end
-	if currentState ~= "Lobby" and currentState ~= "Deploying" then return end
-	if not VALID_SHIP_TYPES[shipType] then return end
+	if not data then
+		return
+	end
+	if currentState ~= "Lobby" and currentState ~= "Deploying" then
+		return
+	end
+	if not VALID_SHIP_TYPES[shipType] then
+		return
+	end
 
 	data.shipType = shipType
 end
 
 function GameManager.OnPlayerReady(player: Player)
 	local data = playerDataMap[player.UserId]
-	if not data then return end
-	if currentState ~= "Lobby" then return end
+	if not data then
+		return
+	end
+	if currentState ~= "Lobby" then
+		return
+	end
 
 	data.isReady = true
 	GameManager._BroadcastReadyCount()
@@ -485,8 +488,12 @@ end
 function GameManager.OnPlayAgain(player: Player)
 	-- Mark the player as ready for the next round.
 	local data = playerDataMap[player.UserId]
-	if not data then return end
-	if currentState ~= "Victory" and currentState ~= "Defeat" then return end
+	if not data then
+		return
+	end
+	if currentState ~= "Victory" and currentState ~= "Defeat" then
+		return
+	end
 
 	data.isReady = true
 end
@@ -544,4 +551,3 @@ function GameManager.Init()
 end
 
 return GameManager
-
