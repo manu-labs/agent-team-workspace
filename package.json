@@ -1,9 +1,9 @@
 {
-  "name": "stockpulse-railway",
+  "name": "agent-team-workspace",
   "private": true,
   "scripts": {
-    "build": "cd stock-analysis-dashboard/backend && npm install",
-    "start": "cd stock-analysis-dashboard/backend && node server.js"
+    "build": "cd ${APP_DIR:-stock-analysis-dashboard/backend} && npm install",
+    "start": "cd ${APP_DIR:-stock-analysis-dashboard/backend} && node server.js"
   },
   "engines": {
     "node": ">=20.0.0"
