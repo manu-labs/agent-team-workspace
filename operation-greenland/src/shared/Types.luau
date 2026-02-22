@@ -8,12 +8,13 @@ export type Vector2D = {
 	Z: number,
 }
 
--- Overall game phase and round tracking
+-- Overall game phase and round tracking.
+-- Phase values match GameManager's state machine exactly.
 export type GameState = {
-	Phase: string,         -- "Lobby" | "Countdown" | "Active" | "Ended"
-	TimeRemaining: number, -- seconds left in the current round
+	Phase: string,         -- "Lobby" | "Deploying" | "Sailing" | "Combat" | "Victory" | "Defeat"
+	TimeRemaining: number, -- seconds left in the current phase
 	Score: number,         -- current US Fleet score
-	WinnerTeam: string?,   -- set when Phase == "Ended"
+	WinnerTeam: string?,   -- set when Phase == "Victory" or "Defeat"
 }
 
 -- Live state of a ship entity on the server
