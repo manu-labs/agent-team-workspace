@@ -2,6 +2,7 @@
 -- Client-side camera system for Operation Greenland.
 -- Smooth top-down/isometric follow camera with zoom, overview mode (Tab hold),
 -- and procedural shake effects.  Purely cosmetic — no gameplay state changes.
+-- During Lobby (no ship assigned), shows a fixed elevated dock view.
 
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
@@ -23,21 +24,40 @@ local CONFIG = {
 	shakeVertScale = 1.5, -- max vertical shake offset (studs)
 }
 
+-- Fixed elevated dock view shown during Lobby (before a ship is assigned or after round ends).
+local LOBBY_CAMERA_POS = Vector3.new(0, 80, -7700)
+local LOBBY_CAMERA_LOOK = Vector3.new(0, 0, -7400)
+
 -- ─── State ───────────────────────────────────────────────────────────────────
 
 local shipModel = nil
 local currentZoom = CONFIG.followHeightDefault
 local overviewActive = false
 local shakeMag = 0
+local lobbyMode = true -- true until a ship is assigned; reset to true on return to Lobby
+
+-- ─── Lobby camera ────────────────────────────────────────────────────────────
+
+local function setLobbyCamera()
+	shipModel = nil
+	lobbyMode = true
+	Camera.CameraType = Enum.CameraType.Scriptable
+	Camera.CFrame = CFrame.lookAt(LOBBY_CAMERA_POS, LOBBY_CAMERA_LOOK)
+end
 
 -- ─── Public API ──────────────────────────────────────────────────────────────
 
 local CameraController = {}
 
+-- Called by init.client when the local player's ship spawns.
 function CameraController.setShip(model)
 	shipModel = model
+	lobbyMode = false
 	print("[CameraController] Ship model set:", model.Name)
 end
+
+-- Called by init.client when the game returns to Lobby state.
+CameraController.setLobbyCamera = setLobbyCamera
 
 -- Trigger camera shake.  magnitude: 0..1 (0.3 = weapon fire, 0.7+ = heavy hit)
 function CameraController.shake(magnitude)
@@ -74,7 +94,8 @@ end
 -- ─── Per-frame update ────────────────────────────────────────────────────────
 
 local function onRenderStepped(dt)
-	if not shipModel or not shipModel.PrimaryPart then
+	-- During Lobby, the camera is fixed on the dock — nothing to update each frame.
+	if lobbyMode or not shipModel or not shipModel.PrimaryPart then
 		return
 	end
 
@@ -119,14 +140,15 @@ end
 -- ─── Init ────────────────────────────────────────────────────────────────────
 
 function CameraController.init()
-	Camera.CameraType = Enum.CameraType.Scriptable
+	-- Show dock view immediately — camera is ready before any ship spawns.
+	setLobbyCamera()
 
 	UserInputService.InputBegan:Connect(onInputBegan)
 	UserInputService.InputEnded:Connect(onInputEnded)
 	UserInputService.InputChanged:Connect(onInputChanged)
 	RunService.RenderStepped:Connect(onRenderStepped)
 
-	print("[CameraController] Initialized — follow-cam, zoom, overview, shake active.")
+	print("[CameraController] Initialized — lobby view active, follow-cam/zoom/overview/shake ready.")
 end
 
 return CameraController
