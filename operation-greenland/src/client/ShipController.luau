@@ -60,11 +60,7 @@ local function spawnWorkspaceModel(modelId: string, shipId: string, position: Ve
 	local model = template:Clone()
 	model.Name = "Ship_" .. shipId
 
-	if model.PrimaryPart then
-		model:SetPrimaryPartCFrame(
-			CFrame.new(position) * CFrame.Angles(0, math.rad(orientationDeg), 0)
-		)
-	end
+	model:PivotTo(CFrame.new(position) * CFrame.Angles(0, math.rad(orientationDeg), 0))
 
 	model.Parent = workspace
 	return model
@@ -231,12 +227,11 @@ local function onShipStateUpdate(snapshot: any)
 
 	for _, state in ipairs(snapshot) do
 		local model = workspaceShips[state.ShipId]
-		if not model or not model.PrimaryPart then continue end
+		if not model then continue end
 
-		-- SetPrimaryPartCFrame positions the model; cosmetic TiltPart tilt
-		-- is applied separately in onHeartbeat and is NOT overridden here
-		-- because TiltPart is a child, not the PrimaryPart.
-		model:SetPrimaryPartCFrame(
+		-- PivotTo positions the whole model; cosmetic TiltPart tilt is applied
+		-- separately in onHeartbeat on the child part and is not overridden here.
+		model:PivotTo(
 			CFrame.new(state.Position) * CFrame.Angles(0, math.rad(state.Orientation or 0), 0)
 		)
 	end
