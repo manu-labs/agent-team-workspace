@@ -1,13 +1,19 @@
 -- UI bootstrap LocalScript
--- Rojo maps this directory to StarterGui.UI.
--- This file uses .client.luau so Rojo creates a LocalScript (runs per-player).
--- Each UI screen/widget (HUD, Minimap, Scoreboard, ShipSelection) will be a
--- sibling ModuleScript that this bootstrap requires and initialises.
+-- Rojo maps src/ui/ to StarterGui.UI (LocalScript per-player).
+-- All UI modules are sibling ModuleScripts required and initialised here.
+
+local ShipSelectionScreen = require(script.ShipSelectionScreen)
+local HUD                 = require(script.HUD)
+local Minimap             = require(script.Minimap)
+local Scoreboard          = require(script.Scoreboard)
+local VictoryDefeatScreen = require(script.VictoryDefeatScreen)
 
 print("[UI] Operation Greenland UI starting...")
 
--- UI modules will be required here once implemented:
--- local HUD = require(script.HUD)
--- local ShipSelection = require(script.ShipSelection)
+ShipSelectionScreen.init()
+HUD.init()
+Minimap.init()
+Scoreboard.init()
+VictoryDefeatScreen.init()
 
 print("[UI] Operation Greenland UI ready.")
