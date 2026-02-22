@@ -458,7 +458,7 @@ export function createGame() {
       const from = current.rotation;
       const to = direction === 'cw' ? (from + 1) % 4 : (from + 3) % 4;
       const kicks = current.type === 'I' ? KICKS_I : KICKS_JLSTZ;
-      const table = kicks[] || [[0, 0]];
+      const table = kicks[from + '>>' + to] || [[0, 0]];
 
       for (const [dr, dc] of table) {
         const nr = current.row + dr;
