@@ -11,9 +11,9 @@ local Vector3 = require("./mocks/Vector3")
 
 local ICEBERG_COLLISION_COOLDOWN = 1.0 -- seconds between iceberg hits per ship
 local SMALL_ICEBERG_DAMAGE = 50 -- mirrors GameConfig.ICEBERG_SMALL_DAMAGE
-local MEDIUM_ICEBERG_DAMAGE = 100
-local LARGE_ICEBERG_DAMAGE = 200
-local STORM_DAMAGE_PER_SECOND = 15
+local MEDIUM_ICEBERG_DAMAGE = 120 -- GameConfig.ICEBERG_MEDIUM_DAMAGE
+local LARGE_ICEBERG_DAMAGE = 250 -- GameConfig.ICEBERG_LARGE_DAMAGE
+local STORM_DAMAGE_PER_SECOND = 5 -- GameConfig.STORM_DAMAGE_PER_SECOND
 local SHALLOW_WATER_SPEED_MULT = 0.5
 
 -- ─── Iceberg cooldown simulation ─────────────────────────────────────────────
@@ -138,13 +138,13 @@ end)
 Assert.test("medium iceberg deals ICEBERG_MEDIUM_DAMAGE per hit", function()
 	local cooldowns: CooldownTable = {}
 	local dmg = tryIcebergDamage(cooldowns, "ship1", MEDIUM_ICEBERG_DAMAGE)
-	Assert.equal(dmg, 100)
+	Assert.equal(dmg, 120)
 end)
 
 Assert.test("large iceberg deals ICEBERG_LARGE_DAMAGE per hit", function()
 	local cooldowns: CooldownTable = {}
 	local dmg = tryIcebergDamage(cooldowns, "ship1", LARGE_ICEBERG_DAMAGE)
-	Assert.equal(dmg, 200)
+	Assert.equal(dmg, 250)
 end)
 
 -- ─── Storm damage ─────────────────────────────────────────────────────────────
@@ -192,3 +192,4 @@ Assert.test("full speed outside shallow water", function()
 end)
 
 Assert.summary("HazardSystem")
+
