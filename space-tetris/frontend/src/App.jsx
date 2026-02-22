@@ -1,1 +1,31 @@
-aW1wb3J0IHsgUm91dGVzLCBSb3V0ZSB9IGZyb20gJ3JlYWN0LXJvdXRlci1kb20nOwppbXBvcnQgTmF2IGZyb20gJy4vY29tcG9uZW50cy9OYXYnOwppbXBvcnQgR2FtZVBhZ2UgZnJvbSAnLi9wYWdlcy9HYW1lUGFnZSc7CmltcG9ydCBMZWFkZXJib2FyZFBhZ2UgZnJvbSAnLi9wYWdlcy9MZWFkZXJib2FyZFBhZ2UnOwppbXBvcnQgTG9naW5QYWdlIGZyb20gJy4vcGFnZXMvTG9naW5QYWdlJzsKaW1wb3J0IFJlZ2lzdGVyUGFnZSBmcm9tICcuL3BhZ2VzL1JlZ2lzdGVyUGFnZSc7CgpleHBvcnQgZGVmYXVsdCBmdW5jdGlvbiBBcHAoKSB7CiAgcmV0dXJuICgKICAgIDxkaXYgY2xhc3NOYW1lPSJoLXNjcmVlbiBmbGV4IGZsZXgtY29sIj4KICAgICAgPE5hdiAvPgogICAgICA8bWFpbiBjbGFzc05hbWU9ImZsZXgtMSBvdmVyZmxvdy1hdXRvIj4KICAgICAgICA8Um91dGVzPgogICAgICAgICAgPFJvdXRlIHBhdGg9Ii8iIGVsZW1lbnQ9ezxHYW1lUGFnZSAvPn0gLz4KICAgICAgICAgIDxSb3V0ZSBwYXRoPSIvbGVhZGVyYm9hcmQiIGVsZW1lbnQ9ezxMZWFkZXJib2FyZFBhZ2UgLz59IC8+CiAgICAgICAgICA8Um91dGUgcGF0aD0iL2xvZ2luIiBlbGVtZW50PXs8TG9naW5QYWdlIC8+fSAvPgogICAgICAgICAgPFJvdXRlIHBhdGg9Ii9yZWdpc3RlciIgZWxlbWVudD17PFJlZ2lzdGVyUGFnZSAvPn0gLz4KICAgICAgICA8L1JvdXRlcz4KICAgICAgPC9tYWluPgogICAgPC9kaXY+CiAgKTsKfQo=
+import { useEffect } from 'react';
+import { Routes, Route } from 'react-router-dom';
+import Nav from './components/Nav';
+import GamePage from './pages/GamePage';
+import LeaderboardPage from './pages/LeaderboardPage';
+import LoginPage from './pages/LoginPage';
+import RegisterPage from './pages/RegisterPage';
+import { useAuthStore } from './stores/authStore';
+
+export default function App() {
+  const fetchMe = useAuthStore((s) => s.fetchMe);
+
+  // Restore auth state from localStorage token on first load
+  useEffect(() => {
+    fetchMe();
+  }, []);
+
+  return (
+    <div className="h-screen flex flex-col">
+      <Nav />
+      <main className="flex-1 overflow-auto">
+        <Routes>
+          <Route path="/" element={<GamePage />} />
+          <Route path="/leaderboard" element={<LeaderboardPage />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/register" element={<RegisterPage />} />
+        </Routes>
+      </main>
+    </div>
+  );
+}
