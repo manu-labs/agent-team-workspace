@@ -1,1 +1,159 @@
-aW1wb3J0IHsgdXNlU3RhdGUsIHVzZUVmZmVjdCwgdXNlQ2FsbGJhY2sgfSBmcm9tICdyZWFjdCc7CmltcG9ydCB7IHVzZVBhcmFtcywgTGluayB9IGZyb20gJ3JlYWN0LXJvdXRlci1kb20nOwppbXBvcnQgeyBzdG9ja0FwaSB9IGZyb20gJy4uL3NlcnZpY2VzL2FwaSc7CmltcG9ydCBQcmljZUNoYXJ0IGZyb20gJy4uL2NvbXBvbmVudHMvUHJpY2VDaGFydCc7CmltcG9ydCBLZXlTdGF0cyBmcm9tICcuLi9jb21wb25lbnRzL0tleVN0YXRzJzsKaW1wb3J0IEVhcm5pbmdzSGlzdG9yeSBmcm9tICcuLi9jb21wb25lbnRzL0Vhcm5pbmdzSGlzdG9yeSc7CmltcG9ydCBOZXdzRmVlZCBmcm9tICcuLi9jb21wb25lbnRzL05ld3NGZWVkJzsKaW1wb3J0IEFpQ2hhdCBmcm9tICcuLi9jb21wb25lbnRzL0FpQ2hhdCc7CmltcG9ydCB1c2VGYXZvcml0ZXNTdG9yZSBmcm9tICcuLi9zdG9yZXMvZmF2b3JpdGVzU3RvcmUnOwoKY29uc3QgVEFCUyA9IFsnRWFybmluZ3MnLCAnTmV3cycsICdBSSBJbnNpZ2h0cycsICdBYm91dCddOwoKZXhwb3J0IGRlZmF1bHQgZnVuY3Rpb24gU3RvY2tEZXRhaWwoKSB7CiAgY29uc3QgeyB0aWNrZXIgfSA9IHVzZVBhcmFtcygpOwogIGNvbnN0IFthY3RpdmVUYWIsIHNldEFjdGl2ZVRhYl0gPSB1c2VTdGF0ZSgnRWFybmluZ3MnKTsKICBjb25zdCBbcXVvdGUsIHNldFF1b3RlXSA9IHVzZVN0YXRlKG51bGwpOwogIGNvbnN0IFtsb2FkaW5nLCBzZXRMb2FkaW5nXSA9IHVzZVN0YXRlKHRydWUpOwogIGNvbnN0IFtlcnJvciwgc2V0RXJyb3JdID0gdXNlU3RhdGUobnVsbCk7CiAgY29uc3QgeyBpc0Zhdm9yaXRlLCBhZGRGYXZvcml0ZSwgcmVtb3ZlRmF2b3JpdGUgfSA9IHVzZUZhdm9yaXRlc1N0b3JlKCk7CgogIGNvbnN0IGZldGNoUXVvdGUgPSB1c2VDYWxsYmFjayhhc3luYyAoKSA9PiB7CiAgICBzZXRMb2FkaW5nKHRydWUpOwogICAgc2V0RXJyb3IobnVsbCk7CiAgICB0cnkgewogICAgICBjb25zdCBkYXRhID0gYXdhaXQgc3RvY2tBcGkuZ2V0UXVvdGUodGlja2VyKTsKICAgICAgc2V0UXVvdGUoZGF0YSk7CiAgICB9IGNhdGNoIChlcnIpIHsKICAgICAgY29uc29sZS5lcnJvcignRmFpbGVkIHRvIGxvYWQgcXVvdGU6JywgZXJyKTsKICAgICAgc2V0RXJyb3IoZXJyLm1lc3NhZ2UpOwogICAgfSBmaW5hbGx5IHsKICAgICAgc2V0TG9hZGluZyhmYWxzZSk7CiAgICB9CiAgfSwgW3RpY2tlcl0pOwoKICB1c2VFZmZlY3QoKCkgPT4gewogICAgZmV0Y2hRdW90ZSgpOwogICAgc2V0QWN0aXZlVGFiKCdFYXJuaW5ncycpOwogIH0sIFtmZXRjaFF1b3RlXSk7CgogIGNvbnN0IGZhdiA9IGlzRmF2b3JpdGUodGlja2VyKTsKCiAgcmV0dXJuICgKICAgIDxkaXYgY2xhc3NOYW1lPSJzcGFjZS15LTYiPgogICAgICB7LyogSGVhZGVyICovfQogICAgICA8ZGl2IGNsYXNzTmFtZT0iZmxleCBpdGVtcy1jZW50ZXIganVzdGlmeS1iZXR3ZWVuIGZsZXgtd3JhcCBnYXAtNCI+CiAgICAgICAgPGRpdiBjbGFzc05hbWU9ImZsZXggaXRlbXMtY2VudGVyIGdhcC00Ij4KICAgICAgICAgIDxMaW5rIHRvPSIvIiBjbGFzc05hbWU9InRleHQtc3VyZmFjZS0yMDAvNTAgaG92ZXI6dGV4dC13aGl0ZSB0cmFuc2l0aW9uLWNvbG9ycyI+CiAgICAgICAgICAgICZsYXJyOyBCYWNrCiAgICAgICAgICA8L0xpbms+CiAgICAgICAgICA8ZGl2PgogICAgICAgICAgICA8aDEgY2xhc3NOYW1lPSJ0ZXh0LTJ4bCBmb250LWJvbGQgdGV4dC13aGl0ZSI+CiAgICAgICAgICAgICAge3RpY2tlcn0KICAgICAgICAgICAgICB7cXVvdGUgJiYgPHNwYW4gY2xhc3NOYW1lPSJ0ZXh0LXN1cmZhY2UtMjAwLzcwIGZvbnQtbm9ybWFsIG1sLTIiPntxdW90ZS5uYW1lfTwvc3Bhbj59CiAgICAgICAgICAgIDwvaDE+CiAgICAgICAgICAgIHtxdW90ZT8uc2VjdG9yICYmICgKICAgICAgICAgICAgICA8cCBjbGFzc05hbWU9InRleHQteHMgdGV4dC1zdXJmYWNlLTIwMC80MCBtdC0wLjUiPgogICAgICAgICAgICAgICAge3F1b3RlLnNlY3Rvcn17cXVvdGUuaW5kdXN0cnkgPyAnIMK3ICcgKyBxdW90ZS5pbmR1c3RyeSA6ICcnfXtxdW90ZS5leGNoYW5nZSA/ICcgwrcgJyArIHF1b3RlLmV4Y2hhbmdlIDogJyd9CiAgICAgICAgICAgICAgPC9wPgogICAgICAgICAgICApfQogICAgICAgICAgPC9kaXY+CiAgICAgICAgPC9kaXY+CiAgICAgICAgPGJ1dHRvbgogICAgICAgICAgb25DbGljaz17KCkgPT4gZmF2ID8gcmVtb3ZlRmF2b3JpdGUodGlja2VyKSA6IGFkZEZhdm9yaXRlKHRpY2tlcil9CiAgICAgICAgICBjbGFzc05hbWU9eyJyb3VuZGVkLWxnIHB4LTQgcHktMiB0ZXh0LXNtIGZvbnQtbWVkaXVtIHRyYW5zaXRpb24tY29sb3JzICIgKwogICAgICAgICAgICAoZmF2CiAgICAgICAgICAgICAgPyAiYmctYnJhbmQtNTAwLzIwIHRleHQtYnJhbmQtNDAwIGhvdmVyOmJnLWJyYW5kLTUwMC8zMCIKICAgICAgICAgICAgICA6ICJiZy1zdXJmYWNlLTgwMCB0ZXh0LXN1cmZhY2UtMjAwLzcwIGhvdmVyOnRleHQtd2hpdGUiKX0KICAgICAgICA+CiAgICAgICAgICB7ZmF2ID8gIlx1MjYwNSBGYXZvcml0ZWQiIDogIlx1MjYwNiBBZGQgdG8gRmF2b3JpdGVzIn0KICAgICAgICA8L2J1dHRvbj4KICAgICAgPC9kaXY+CgogICAgICB7LyogUXVvdGUgZXJyb3IgYmFubmVyICovfQogICAgICB7ZXJyb3IgJiYgIXF1b3RlICYmICFsb2FkaW5nICYmICgKICAgICAgICA8ZGl2IGNsYXNzTmFtZT0iY2FyZCBiZy1zdXJmYWNlLTgwMCBib3JkZXIgYm9yZGVyLXN1cmZhY2UtNzAwIGZsZXggaXRlbXMtY2VudGVyIGp1c3RpZnktYmV0d2VlbiI+CiAgICAgICAgICA8cCBjbGFzc05hbWU9InRleHQtc3VyZmFjZS0yMDAvNTAgdGV4dC1zbSI+CiAgICAgICAgICAgIENvdWxkIG5vdCBsb2FkIHF1b3RlIGRhdGEgZm9yIDxzcGFuIGNsYXNzTmFtZT0iZm9udC1tb25vIHRleHQtd2hpdGUiPnt0aWNrZXJ9PC9zcGFuPi4gT3RoZXIgc2VjdGlvbnMgbWF5IHN0aWxsIHdvcmsuCiAgICAgICAgICA8L3A+CiAgICAgICAgICA8YnV0dG9uCiAgICAgICAgICAgIG9uQ2xpY2s9e2ZldGNoUXVvdGV9CiAgICAgICAgICAgIGNsYXNzTmFtZT0ic2hyaW5rLTAgbWwtNCBweC0zIHB5LTEuNSByb3VuZGVkLWxnIGJnLWJyYW5kLTYwMCB0ZXh0LXdoaXRlIHRleHQteHMgaG92ZXI6YmctYnJhbmQtNzAwIHRyYW5zaXRpb24tY29sb3JzIgogICAgICAgICAgPgogICAgICAgICAgICBSZXRyeQogICAgICAgICAgPC9idXR0b24+CiAgICAgICAgPC9kaXY+CiAgICAgICl9CgogICAgICB7LyogUHJpY2UgKyBDaGFydCAqL30KICAgICAge2xvYWRpbmcgPyAoCiAgICAgICAgPGRpdiBjbGFzc05hbWU9ImNhcmQgYW5pbWF0ZS1wdWxzZSBoLTY0IiAvPgogICAgICApIDogKAogICAgICAgIDw+CiAgICAgICAgICB7cXVvdGUgJiYgKAogICAgICAgICAgICA8ZGl2IGNsYXNzTmFtZT0iZmxleCBpdGVtcy1iYXNlbGluZSBnYXAtMyI+CiAgICAgICAgICAgICAgPHNwYW4gY2xhc3NOYW1lPSJ0ZXh0LTN4bCBmb250LWJvbGQgZm9udC1tb25vIHRleHQtd2hpdGUiPgogICAgICAgICAgICAgICAgJHtxdW90ZS5wcmljZSAhPSBudWxsID8gcXVvdGUucHJpY2UudG9GaXhlZCgyKSA6ICctLSd9CiAgICAgICAgICAgICAgPC9zcGFuPgogICAgICAgICAgICAgIHtxdW90ZS5jaGFuZ2UgIT0gbnVsbCAmJiAoCiAgICAgICAgICAgICAgICA8c3BhbiBjbGFzc05hbWU9e3F1b3RlLmNoYW5nZSA+PSAwID8gJ2JhZGdlLWdhaW4nIDogJ2JhZGdlLWxvc3MnfT4KICAgICAgICAgICAgICAgICAge3F1b3RlLmNoYW5nZSA+PSAwID8gJysnIDogJyd9e3F1b3RlLmNoYW5nZS50b0ZpeGVkKDIpfSAoe3F1b3RlLmNoYW5nZVBlcmNlbnQgIT0gbnVsbCA/IHF1b3RlLmNoYW5nZVBlcmNlbnQudG9GaXhlZCgyKSA6ICcwLjAwJ30lKQogICAgICAgICAgICAgICAgPC9zcGFuPgogICAgICAgICAgICAgICl9CiAgICAgICAgICAgIDwvZGl2PgogICAgICAgICAgKX0KICAgICAgICAgIDxQcmljZUNoYXJ0IHRpY2tlcj17dGlja2VyfSAvPgogICAgICAgIDwvPgogICAgICApfQoKICAgICAgey8qIEtleSBTdGF0cyAqL30KICAgICAgPEtleVN0YXRzIHF1b3RlPXtxdW90ZX0gLz4KCiAgICAgIHsvKiBUYWJzICovfQogICAgICA8ZGl2IGNsYXNzTmFtZT0iYm9yZGVyLWIgYm9yZGVyLXN1cmZhY2UtNzAwIj4KICAgICAgICA8ZGl2IGNsYXNzTmFtZT0iZmxleCBnYXAtMSBvdmVyZmxvdy14LWF1dG8iPgogICAgICAgICAge1RBQlMubWFwKCh0YWIpID0+ICgKICAgICAgICAgICAgPGJ1dHRvbgogICAgICAgICAgICAgIGtleT17dGFifQogICAgICAgICAgICAgIG9uQ2xpY2s9eygpID0+IHNldEFjdGl2ZVRhYih0YWIpfQogICAgICAgICAgICAgIGNsYXNzTmFtZT17InB4LTQgcHktMi41IHRleHQtc20gZm9udC1tZWRpdW0gdHJhbnNpdGlvbi1jb2xvcnMgYm9yZGVyLWItMiAtbWItcHggd2hpdGVzcGFjZS1ub3dyYXAgIiArCiAgICAgICAgICAgICAgICAoYWN0aXZlVGFiID09PSB0YWIKICAgICAgICAgICAgICAgICAgPyAiYm9yZGVyLWJyYW5kLTUwMCB0ZXh0LWJyYW5kLTQwMCIKICAgICAgICAgICAgICAgICAgOiAiYm9yZGVyLXRyYW5zcGFyZW50IHRleHQtc3VyZmFjZS0yMDAvNTAgaG92ZXI6dGV4dC13aGl0ZSIpfQogICAgICAgICAgICA+CiAgICAgICAgICAgICAge3RhYn0KICAgICAgICAgICAgPC9idXR0b24+CiAgICAgICAgICApKX0KICAgICAgICA8L2Rpdj4KICAgICAgPC9kaXY+CgogICAgICB7LyogVGFiIGNvbnRlbnQgKi99CiAgICAgIDxkaXY+CiAgICAgICAge2FjdGl2ZVRhYiA9PT0gJ0Vhcm5pbmdzJyAmJiA8RWFybmluZ3NIaXN0b3J5IHRpY2tlcj17dGlja2VyfSAvPn0KICAgICAgICB7YWN0aXZlVGFiID09PSAnTmV3cycgJiYgPE5ld3NGZWVkIHRpY2tlcj17dGlja2VyfSAvPn0KICAgICAgICB7YWN0aXZlVGFiID09PSAnQUkgSW5zaWdodHMnICYmIDxBaUNoYXQgdGlja2VyPXt0aWNrZXJ9IC8+fQogICAgICAgIHthY3RpdmVUYWIgPT09ICdBYm91dCcgJiYgPEFib3V0U2VjdGlvbiBxdW90ZT17cXVvdGV9IC8+fQogICAgICA8L2Rpdj4KICAgIDwvZGl2PgogICk7Cn0KCmZ1bmN0aW9uIEFib3V0U2VjdGlvbih7IHF1b3RlIH0pIHsKICBpZiAoIXF1b3RlKSB7CiAgICByZXR1cm4gKAogICAgICA8ZGl2IGNsYXNzTmFtZT0iY2FyZCB0ZXh0LWNlbnRlciBweS04Ij4KICAgICAgICA8cCBjbGFzc05hbWU9InRleHQtc3VyZmFjZS0yMDAvNTAgdGV4dC1zbSI+TG9hZGluZyBjb21wYW55IGluZm9ybWF0aW9uLi4uPC9wPgogICAgICA8L2Rpdj4KICAgICk7CiAgfQoKICBjb25zdCBpbmZvID0gWwogICAgeyBsYWJlbDogJ0NvbXBhbnknLCB2YWx1ZTogcXVvdGUubmFtZSB9LAogICAgeyBsYWJlbDogJ1RpY2tlcicsIHZhbHVlOiBxdW90ZS50aWNrZXIgfSwKICAgIHsgbGFiZWw6ICdTZWN0b3InLCB2YWx1ZTogcXVvdGUuc2VjdG9yIH0sCiAgICB7IGxhYmVsOiAnSW5kdXN0cnknLCB2YWx1ZTogcXVvdGUuaW5kdXN0cnkgfSwKICAgIHsgbGFiZWw6ICdFeGNoYW5nZScsIHZhbHVlOiBxdW90ZS5leGNoYW5nZSB9LAogIF0uZmlsdGVyKChpKSA9PiBpLnZhbHVlKTsKCiAgcmV0dXJuICgKICAgIDxkaXYgY2xhc3NOYW1lPSJjYXJkIj4KICAgICAgPGgzIGNsYXNzTmFtZT0idGV4dC1sZyBmb250LXNlbWlib2xkIHRleHQtd2hpdGUgbWItNCI+Q29tcGFueSBJbmZvcm1hdGlvbjwvaDM+CiAgICAgIDxkbCBjbGFzc05hbWU9ImdyaWQgZ3JpZC1jb2xzLTEgc206Z3JpZC1jb2xzLTIgZ2FwLXgtOCBnYXAteS0zIj4KICAgICAgICB7aW5mby5tYXAoKGl0ZW0pID0+ICgKICAgICAgICAgIDxkaXYga2V5PXtpdGVtLmxhYmVsfSBjbGFzc05hbWU9ImZsZXgganVzdGlmeS1iZXR3ZWVuIHNtOmJsb2NrIj4KICAgICAgICAgICAgPGR0IGNsYXNzTmFtZT0idGV4dC14cyB0ZXh0LXN1cmZhY2UtMjAwLzUwIj57aXRlbS5sYWJlbH08L2R0PgogICAgICAgICAgICA8ZGQgY2xhc3NOYW1lPSJ0ZXh0LXNtIHRleHQtd2hpdGUgZm9udC1tZWRpdW0iPntpdGVtLnZhbHVlfTwvZGQ+CiAgICAgICAgICA8L2Rpdj4KICAgICAgICApKX0KICAgICAgPC9kbD4KICAgIDwvZGl2PgogICk7Cn0K
+import { useState, useEffect, useCallback } from 'react';
+import { useParams, Link } from 'react-router-dom';
+import { stockApi } from '../services/api';
+import PriceChart from '../components/PriceChart';
+import KeyStats from '../components/KeyStats';
+import EarningsHistory from '../components/EarningsHistory';
+import NewsFeed from '../components/NewsFeed';
+import AiChat from '../components/AiChat';
+import useFavoritesStore from '../stores/favoritesStore';
+
+const TABS = ['Earnings', 'News', 'AI Insights', 'About'];
+
+export default function StockDetail() {
+  const { ticker } = useParams();
+  const [activeTab, setActiveTab] = useState('Earnings');
+  const [quote, setQuote] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const { isFavorite, addFavorite, removeFavorite } = useFavoritesStore();
+
+  const fetchQuote = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await stockApi.getQuote(ticker);
+      setQuote(data);
+    } catch (err) {
+      console.error('Failed to load quote:', err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [ticker]);
+
+  useEffect(() => {
+    fetchQuote();
+    setActiveTab('Earnings');
+  }, [fetchQuote]);
+
+  const fav = isFavorite(ticker);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div className="flex items-center gap-4">
+          <Link to="/" className="text-surface-200/50 hover:text-white transition-colors">
+            &larr; Back
+          </Link>
+          <div>
+            <h1 className="text-2xl font-bold text-white">
+              {ticker}
+              {quote && <span className="text-surface-200/70 font-normal ml-2">{quote.name}</span>}
+            </h1>
+            {quote?.sector && (
+              <p className="text-xs text-surface-200/40 mt-0.5">
+                {quote.sector}{quote.industry ? ' \u00b7 ' + quote.industry : ''}{quote.exchange ? ' \u00b7 ' + quote.exchange : ''}
+              </p>
+            )}
+          </div>
+        </div>
+        <button
+          onClick={() => fav ? removeFavorite(ticker) : addFavorite(ticker)}
+          className={"rounded-lg px-4 py-2 text-sm font-medium transition-colors " + (fav ? 'bg-brand-500/20 text-brand-400 hover:bg-brand-500/30' : 'bg-surface-800 text-surface-200/70 hover:text-white')}
+        >
+          {fav ? "\u2605 Favorited" : "\u2606 Add to Favorites"}
+        </button>
+      </div>
+
+      {error && !quote && !loading && (
+        <div className="card bg-surface-800 border border-surface-700 flex items-center justify-between">
+          <p className="text-surface-200/50 text-sm">
+            Could not load quote data for <span className="font-mono text-white">{ticker}</span>. Other sections may still work.
+          </p>
+          <button onClick={fetchQuote} className="shrink-0 ml-4 px-3 py-1.5 rounded-lg bg-brand-600 text-white text-xs hover:bg-brand-700 transition-colors">
+            Retry
+          </button>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="card animate-pulse h-64" />
+      ) : (
+        <>
+          {quote && (
+            <div className="flex items-baseline gap-3">
+              <span className="text-3xl font-bold font-mono text-white">
+                ${quote.price != null ? quote.price.toFixed(2) : '--'}
+              </span>
+              {quote.change != null && (
+                <span className={quote.change >= 0 ? 'badge-gain' : 'badge-loss'}>
+                  {quote.change >= 0 ? '+' : ''}{quote.change.toFixed(2)} ({quote.changePercent != null ? quote.changePercent.toFixed(2) : '0.00'}%)
+                </span>
+              )}
+            </div>
+          )}
+          <PriceChart ticker={ticker} />
+        </>
+      )}
+
+      <KeyStats quote={quote} />
+
+      <div className="border-b border-surface-700">
+        <div className="flex gap-1 overflow-x-auto">
+          {TABS.map((tab) => (
+            <button key={tab} onClick={() => setActiveTab(tab)}
+              className={"px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px whitespace-nowrap " + (activeTab === tab ? 'border-brand-500 text-brand-400' : 'border-transparent text-surface-200/50 hover:text-white')}>
+              {tab}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        {activeTab === 'Earnings' && <EarningsHistory ticker={ticker} />}
+        {activeTab === 'News' && <NewsFeed ticker={ticker} />}
+        {activeTab === 'AI Insights' && <AiChat ticker={ticker} />}
+        {activeTab === 'About' && <AboutSection quote={quote} quoteError={error} quoteLoading={loading} />}
+      </div>
+    </div>
+  );
+}
+
+function AboutSection({ quote, quoteError, quoteLoading }) {
+  if (!quote) {
+    const message = quoteLoading
+      ? 'Loading company information...'
+      : quoteError
+        ? 'Company information unavailable.'
+        : 'No company information available.';
+    return (
+      <div className="card text-center py-8">
+        <p className="text-surface-200/50 text-sm">{message}</p>
+      </div>
+    );
+  }
+
+  const info = [
+    { label: 'Company', value: quote.name },
+    { label: 'Ticker', value: quote.ticker },
+    { label: 'Sector', value: quote.sector },
+    { label: 'Industry', value: quote.industry },
+    { label: 'Exchange', value: quote.exchange },
+  ].filter((i) => i.value);
+
+  return (
+    <div className="card">
+      <h3 className="text-lg font-semibold text-white mb-4">Company Information</h3>
+      <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
+        {info.map((item) => (
+          <div key={item.label} className="flex justify-between sm:block">
+            <dt className="text-xs text-surface-200/50">{item.label}</dt>
+            <dd className="text-sm text-white font-medium">{item.value}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
