@@ -53,10 +53,14 @@ HazardSystem.init(remotes, ShipSystem)
 
 -- ─── Broadcast throttles ─────────────────────────────────────────────────────
 
+local shipBroadcastAccum = 0
+local SHIP_BROADCAST_INTERVAL = 0.066       -- ~15 updates/sec for smooth rendering
+local minimapBroadcastAccum = 0
+local MINIMAP_BROADCAST_INTERVAL = 0.5      -- minimap dots update every 0.5s
 local territoryBroadcastAccum = 0
-local TERRITORY_BROADCAST_INTERVAL = 0.5  -- broadcast every 0.5s (~10 ticks at 20Hz)
+local TERRITORY_BROADCAST_INTERVAL = 0.5    -- zone state every 0.5s
 local hazardBroadcastAccum = 0
-local HAZARD_BROADCAST_INTERVAL = 0.25    -- broadcast every 0.25s (~5 ticks at 20Hz)
+local HAZARD_BROADCAST_INTERVAL = 0.25      -- storm positions every 0.25s
 
 -- ─── Main game loop ──────────────────────────────────────────────────────────
 -- Heartbeat fires ~60 times/sec, after physics.
@@ -78,20 +82,48 @@ RunService.Heartbeat:Connect(function(dt: number)
 	-- HazardSystem needs the full ship map and player list
 	HazardSystem.tick(dt, ShipSystem.getAllShips(), Players:GetPlayers())
 
-	-- Periodic broadcasts
+	-- ── Ship state broadcast (~15 Hz) ────────────────────────────────────
+	-- Full snapshot for client-side ship rendering (position, orientation,
+	-- velocity, health). Fires ShipStateUpdate to all clients.
+	shipBroadcastAccum += dt
+	if shipBroadcastAccum >= SHIP_BROADCAST_INTERVAL then
+		shipBroadcastAccum = 0
+		ShipSystem.broadcastState()
+	end
+
+	-- ── Minimap broadcast (~2 Hz) ────────────────────────────────────────
+	-- Simplified {userId, x, z} list for the minimap UI.
+	-- Lower frequency than ShipStateUpdate since minimap dots don't need
+	-- frame-perfect positions.
+	minimapBroadcastAccum += dt
+	if minimapBroadcastAccum >= MINIMAP_BROADCAST_INTERVAL then
+		minimapBroadcastAccum = 0
+		local minimapShips = {}
+		for _, ship in pairs(ShipSystem.getAllShips()) do
+			if ship.IsAlive then
+				table.insert(minimapShips, {
+					userId = ship.OwnerId,
+					x = ship.Position.X,
+					z = ship.Position.Z,
+				})
+			end
+		end
+		remotes["MinimapUpdated"]:FireAllClients(minimapShips)
+	end
+
+	-- ── Territory broadcast (~2 Hz) ──────────────────────────────────────
 	territoryBroadcastAccum += dt
 	if territoryBroadcastAccum >= TERRITORY_BROADCAST_INTERVAL then
 		territoryBroadcastAccum = 0
 		TerritorySystem.broadcastState()
 	end
 
+	-- ── Hazard broadcast (~4 Hz) ─────────────────────────────────────────
 	hazardBroadcastAccum += dt
 	if hazardBroadcastAccum >= HAZARD_BROADCAST_INTERVAL then
 		hazardBroadcastAccum = 0
 		HazardSystem.broadcastState()
 	end
-
-	-- ShipSystem broadcasts its own state internally via tick()
 end)
 
 print("[Server] Operation Greenland server ready.")
