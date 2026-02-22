@@ -29,19 +29,19 @@ local ShipSystem = {}
 -- ─── Internal state ────────────────────────────────────────────────────────────
 
 -- All live ship states, keyed by shipId
-local _ships: {[string]: any} = {}
+local _ships: { [string]: any } = {}
 
 -- userId → shipId
-local _playerShipMap: {[number]: string} = {}
+local _playerShipMap: { [number]: string } = {}
 
 -- userId → seconds remaining until respawn
-local _respawnTimers: {[number]: number} = {}
+local _respawnTimers: { [number]: number } = {}
 
 -- Spawn slot occupancy (index → bool)
-local _spawnSlots: {[number]: boolean} = {}
+local _spawnSlots: { [number]: boolean } = {}
 
 -- Shared remotes table (injected via init — comes from GameManager.GetRemotes())
-local _remotes: {[string]: RemoteEvent} = {}
+local _remotes: { [string]: RemoteEvent } = {}
 
 -- Callback fired when a respawn timer expires: (userId: number) -> ()
 local _onRespawnReady: ((number) -> ())?
@@ -53,14 +53,14 @@ local DRAG_PER_SECOND = 0.85
 local SPAWN_POSITIONS = {
 	Vector3.new(-300, 0, -7500),
 	Vector3.new(-150, 0, -7600),
-	Vector3.new(   0, 0, -7500),
-	Vector3.new( 150, 0, -7600),
-	Vector3.new( 300, 0, -7500),
+	Vector3.new(0, 0, -7500),
+	Vector3.new(150, 0, -7600),
+	Vector3.new(300, 0, -7500),
 	Vector3.new(-225, 0, -7700),
-	Vector3.new( -75, 0, -7700),
-	Vector3.new(  75, 0, -7700),
-	Vector3.new( 225, 0, -7700),
-	Vector3.new(   0, 0, -7800),
+	Vector3.new(-75, 0, -7700),
+	Vector3.new(75, 0, -7700),
+	Vector3.new(225, 0, -7700),
+	Vector3.new(0, 0, -7800),
 }
 
 -- ─── Initialization ────────────────────────────────────────────────────────────
@@ -70,7 +70,7 @@ local SPAWN_POSITIONS = {
 ---
 ---   GameManager.Init()
 ---   ShipSystem.init(GameManager.GetRemotes(), onRespawnReady)
-function ShipSystem.init(remotes: {[string]: RemoteEvent}, onRespawnReady: ((number) -> ())?)
+function ShipSystem.init(remotes: { [string]: RemoteEvent }, onRespawnReady: ((number) -> ())?)
 	_remotes = remotes
 	_onRespawnReady = onRespawnReady
 
@@ -109,7 +109,7 @@ function ShipSystem.spawnShip(player: Player, shipType: string?): string?
 			resolvedType = pd and pd.shipType or nil
 		end
 		resolvedType = resolvedType or "Destroyer"
-		_ = remotesFolder  -- suppress unused warning
+		_ = remotesFolder -- suppress unused warning
 	end
 
 	local config = ShipConfig.GetShipConfig(resolvedType)
@@ -138,20 +138,20 @@ function ShipSystem.spawnShip(player: Player, shipType: string?): string?
 	-- Velocity is stored as {X, Z} (no Y component — ships are surface-only).
 	-- Use ship.Velocity.X / ship.Velocity.Z directly; do not call .Magnitude on it.
 	local shipData = {
-		ShipId         = shipId,
-		OwnerId        = userId,
-		ShipType       = resolvedType,
-		Position       = spawnPos,       -- Vector3; Y is always 0 (sea level)
-		Orientation    = 0,              -- degrees, Y-axis rotation (0 = north)
-		Velocity       = { X = 0, Z = 0 }, -- {X,Z} table, NOT Vector3 (no Y needed)
-		Health         = config.Health,
-		MaxHealth      = config.Health,
-		IsAlive        = true,
+		ShipId = shipId,
+		OwnerId = userId,
+		ShipType = resolvedType,
+		Position = spawnPos, -- Vector3; Y is always 0 (sea level)
+		Orientation = 0, -- degrees, Y-axis rotation (0 = north)
+		Velocity = { X = 0, Z = 0 }, -- {X,Z} table, NOT Vector3 (no Y needed)
+		Health = config.Health,
+		MaxHealth = config.Health,
+		IsAlive = true,
 		InShallowWater = false,
-		InStorm        = false,
-		_slotIndex     = slotIndex,
-		_inputForward  = 0,
-		_inputTurn     = 0,
+		InStorm = false,
+		_slotIndex = slotIndex,
+		_inputForward = 0,
+		_inputTurn = 0,
 	}
 
 	_ships[shipId] = shipData
@@ -160,14 +160,14 @@ function ShipSystem.spawnShip(player: Player, shipType: string?): string?
 	-- Notify all clients so they can instantiate the ship model in workspace.
 	-- Client: clone ReplicatedStorage.ShipModels[ModelId], name "Ship_"..ShipId, parent to workspace.
 	_remotes["ShipSpawned"]:FireAllClients({
-		ShipId      = shipId,
-		OwnerId     = userId,
+		ShipId = shipId,
+		OwnerId = userId,
 		DisplayName = player.DisplayName,
-		ShipType    = resolvedType,
-		ModelId     = config.ModelId,
-		Position    = spawnPos,
+		ShipType = resolvedType,
+		ModelId = config.ModelId,
+		Position = spawnPos,
 		Orientation = 0,
-		MaxHealth   = config.Health,
+		MaxHealth = config.Health,
 	})
 
 	ShipSystem._fireHealthUpdated(player, config.Health, config.Health)
@@ -178,7 +178,9 @@ end
 --- Remove the ship state immediately (no animation). Called after the sink sequence completes.
 function ShipSystem.despawnShip(shipId: string)
 	local ship = _ships[shipId]
-	if not ship then return end
+	if not ship then
+		return
+	end
 
 	if ship._slotIndex then
 		_spawnSlots[ship._slotIndex] = false
@@ -197,7 +199,9 @@ end
 --- Returns remaining HP, or 0 if the player has no active ship.
 function ShipSystem.ApplyDamage(userId: number, amount: number): number
 	local shipId = _playerShipMap[userId]
-	if not shipId then return 0 end
+	if not shipId then
+		return 0
+	end
 	return ShipSystem._takeDamage(shipId, amount)
 end
 
@@ -208,7 +212,9 @@ end
 
 function ShipSystem._takeDamage(shipId: string, damage: number): number
 	local ship = _ships[shipId]
-	if not ship or not ship.IsAlive then return 0 end
+	if not ship or not ship.IsAlive then
+		return 0
+	end
 
 	ship.Health = math.max(0, ship.Health - damage)
 
@@ -227,7 +233,9 @@ end
 --- Apply healing by shipId — used by Supply Ship aura.
 function ShipSystem.applyHeal(shipId: string, amount: number): number
 	local ship = _ships[shipId]
-	if not ship or not ship.IsAlive then return 0 end
+	if not ship or not ship.IsAlive then
+		return 0
+	end
 
 	ship.Health = math.min(ship.MaxHealth, ship.Health + amount)
 
@@ -246,12 +254,14 @@ end
 ---   4. Start respawn countdown.
 function ShipSystem._destroyShip(shipId: string)
 	local ship = _ships[shipId]
-	if not ship or not ship.IsAlive then return end
+	if not ship or not ship.IsAlive then
+		return
+	end
 
-	ship.IsAlive       = false
+	ship.IsAlive = false
 	ship._inputForward = 0
-	ship._inputTurn    = 0
-	ship.Velocity      = { X = 0, Z = 0 }
+	ship._inputTurn = 0
+	ship.Velocity = { X = 0, Z = 0 }
 
 	-- ShipDestroyed → clients play sink animation immediately
 	_remotes["ShipDestroyed"]:FireAllClients({ ShipId = shipId, OwnerId = ship.OwnerId })
@@ -267,20 +277,26 @@ end
 -- ─── Movement Input ───────────────────────────────────────────────────────────
 
 function ShipSystem._handleMoveInput(player: Player, inputData: any)
-	if type(inputData) ~= "table" then return end
+	if type(inputData) ~= "table" then
+		return
+	end
 
 	-- Server validates all input — clients cannot send out-of-range values
-	local fwd  = math.clamp(tonumber(inputData.forward) or 0, -1, 1)
-	local turn = math.clamp(tonumber(inputData.turn)    or 0, -1, 1)
+	local fwd = math.clamp(tonumber(inputData.forward) or 0, -1, 1)
+	local turn = math.clamp(tonumber(inputData.turn) or 0, -1, 1)
 
 	local shipId = _playerShipMap[player.UserId]
-	if not shipId then return end
+	if not shipId then
+		return
+	end
 
 	local ship = _ships[shipId]
-	if not ship or not ship.IsAlive then return end
+	if not ship or not ship.IsAlive then
+		return
+	end
 
 	ship._inputForward = fwd
-	ship._inputTurn    = turn
+	ship._inputTurn = turn
 end
 
 -- ─── Physics Tick ─────────────────────────────────────────────────────────────
@@ -291,19 +307,23 @@ function ShipSystem.tick(dt: number)
 	local healPulses = {}
 
 	for shipId, ship in pairs(_ships) do
-		if not ship.IsAlive then continue end
+		if not ship.IsAlive then
+			continue
+		end
 
 		local config = ShipConfig.GetShipConfig(ship.ShipType)
-		if not config then continue end
+		if not config then
+			continue
+		end
 
 		local speedMult = ship.InShallowWater and config.ShallowWaterSpeedMultiplier or 1.0
-		local maxSpeed  = config.Speed * speedMult
+		local maxSpeed = config.Speed * speedMult
 
 		-- ── Turning ──────────────────────────────────────────────────────
 		ship.Orientation = (ship.Orientation + config.TurnRate * ship._inputTurn * dt) % 360
 
 		-- ── Acceleration / drag ──────────────────────────────────────────
-		local rad  = math.rad(ship.Orientation)
+		local rad = math.rad(ship.Orientation)
 		local fwdX = math.sin(rad)
 		local fwdZ = math.cos(rad)
 
@@ -347,7 +367,7 @@ function ShipSystem.tick(dt: number)
 			ship.Velocity.Z = 0
 		end
 
-		ship.Position       = Vector3.new(newX, ship.Position.Y, newZ)
+		ship.Position = Vector3.new(newX, ship.Position.Y, newZ)
 		ship.InShallowWater = ship.Position.Z >= GameConfig.SHALLOW_WATER_Z_THRESHOLD
 
 		-- ── HUD: speed as throttle percentage ────────────────────────────
@@ -359,10 +379,12 @@ function ShipSystem.tick(dt: number)
 
 		-- ── Supply Ship heal aura (passive) ──────────────────────────────
 		if ship.ShipType == ShipConfig.ShipType.SUPPLY_SHIP then
-			local aura   = config.SpecialWeapon
+			local aura = config.SpecialWeapon
 			local healed = {}
 			for otherShipId, other in pairs(_ships) do
-				if otherShipId == shipId or not other.IsAlive then continue end
+				if otherShipId == shipId or not other.IsAlive then
+					continue
+				end
 				if Utils.Distance2D(ship.Position, other.Position) <= aura.AuraRadius then
 					ShipSystem.applyHeal(otherShipId, aura.HealPerSecond * dt)
 					table.insert(healed, otherShipId)
@@ -401,16 +423,16 @@ function ShipSystem.broadcastState()
 	local snapshot = {}
 	for _, ship in pairs(_ships) do
 		table.insert(snapshot, {
-			ShipId      = ship.ShipId,
-			OwnerId     = ship.OwnerId,
-			Position    = ship.Position,
+			ShipId = ship.ShipId,
+			OwnerId = ship.OwnerId,
+			Position = ship.Position,
 			Orientation = ship.Orientation,
 			-- Velocity exposed as {X,Z} table — clients should use X/Z components, not .Magnitude
-			VelocityX   = ship.Velocity.X,
-			VelocityZ   = ship.Velocity.Z,
-			Health      = ship.Health,
-			MaxHealth   = ship.MaxHealth,
-			IsAlive     = ship.IsAlive,
+			VelocityX = ship.Velocity.X,
+			VelocityZ = ship.Velocity.Z,
+			Health = ship.Health,
+			MaxHealth = ship.MaxHealth,
+			IsAlive = ship.IsAlive,
 		})
 	end
 	_remotes["ShipStateUpdate"]:FireAllClients(snapshot)
@@ -422,7 +444,9 @@ end
 --- Primary hit-detection query for CombatSystem.
 function ShipSystem.GetShipPosition(userId: number): Vector3?
 	local shipId = _playerShipMap[userId]
-	if not shipId then return nil end
+	if not shipId then
+		return nil
+	end
 	local ship = _ships[shipId]
 	return ship and ship.Position or nil
 end
@@ -438,7 +462,7 @@ function ShipSystem.getShipForPlayer(userId: number): string?
 end
 
 --- Return all active ships (read-only — do not mutate from outside ShipSystem).
-function ShipSystem.getAllShips(): {[string]: any}
+function ShipSystem.getAllShips(): { [string]: any }
 	return _ships
 end
 
@@ -447,13 +471,17 @@ end
 --- Set whether a ship is inside a storm. Called by HazardSystem each tick.
 function ShipSystem.setInStorm(shipId: string, inStorm: boolean)
 	local ship = _ships[shipId]
-	if ship then ship.InStorm = inStorm end
+	if ship then
+		ship.InStorm = inStorm
+	end
 end
 
 --- Set whether a ship is in shallow water. Called by HazardSystem for harbour zones.
 function ShipSystem.setInShallowWater(shipId: string, inShallow: boolean)
 	local ship = _ships[shipId]
-	if ship then ship.InShallowWater = inShallow end
+	if ship then
+		ship.InShallowWater = inShallow
+	end
 end
 
 -- ─── Private helpers ──────────────────────────────────────────────────────────
