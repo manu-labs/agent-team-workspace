@@ -2,12 +2,12 @@
 -- Rojo maps src/client/ to StarterPlayer.StarterPlayerScripts.Client.
 -- Requires and initialises all client-side controller ModuleScripts.
 
-local Players           = game:GetService("Players")
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local LocalPlayer = Players.LocalPlayer
 
-local ShipController   = require(script.ShipController)
+local ShipController = require(script.ShipController)
 local CameraController = require(script.CameraController)
 
 print("[Client] Operation Greenland client starting...")
@@ -20,14 +20,18 @@ CameraController.init()
 -- We listen here too to hand the local model to CameraController.
 -- Both listeners fire in the same tick; ShipController registers first (inits first),
 -- so the model already exists in workspace when this callback runs.
-local Remotes         = ReplicatedStorage:WaitForChild("Remotes", 10)
-local ShipSpawnedRE   = Remotes and Remotes:WaitForChild("ShipSpawned",  10)
-local ShipDespawnedRE = Remotes and Remotes:WaitForChild("ShipDespawned",10)
+local Remotes = ReplicatedStorage:WaitForChild("Remotes", 10)
+local ShipSpawnedRE = Remotes and Remotes:WaitForChild("ShipSpawned", 10)
+local ShipDespawnedRE = Remotes and Remotes:WaitForChild("ShipDespawned", 10)
 
 if ShipSpawnedRE then
 	ShipSpawnedRE.OnClientEvent:Connect(function(data)
-		if type(data) ~= "table" then return end
-		if data.OwnerId ~= LocalPlayer.UserId then return end
+		if type(data) ~= "table" then
+			return
+		end
+		if data.OwnerId ~= LocalPlayer.UserId then
+			return
+		end
 
 		-- ShipController already parented the model to workspace as "Ship_<ShipId>"
 		local model = workspace:FindFirstChild("Ship_" .. data.ShipId)
@@ -39,7 +43,9 @@ end
 
 if ShipDespawnedRE then
 	ShipDespawnedRE.OnClientEvent:Connect(function(data)
-		if type(data) ~= "table" then return end
+		if type(data) ~= "table" then
+			return
+		end
 		-- Notify camera that the local ship is gone so it stops tracking
 		-- (CameraController gracefully handles a nil/destroyed model via PrimaryPart guard)
 	end)

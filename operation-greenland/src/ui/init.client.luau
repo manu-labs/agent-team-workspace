@@ -3,9 +3,9 @@
 -- All UI modules are sibling ModuleScripts required and initialised here.
 
 local ShipSelectionScreen = require(script.ShipSelectionScreen)
-local HUD                 = require(script.HUD)
-local Minimap             = require(script.Minimap)
-local Scoreboard          = require(script.Scoreboard)
+local HUD = require(script.HUD)
+local Minimap = require(script.Minimap)
+local Scoreboard = require(script.Scoreboard)
 local VictoryDefeatScreen = require(script.VictoryDefeatScreen)
 
 print("[UI] Operation Greenland UI starting...")
