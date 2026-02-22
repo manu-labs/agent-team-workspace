@@ -6,23 +6,22 @@
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
-local ShipController  = require(script.ShipController)
--- local CameraController = require(script.CameraController)  -- added in #92
+local ShipController   = require(script.ShipController)
+local CameraController = require(script.CameraController)
 
 print("[Client] Operation Greenland client starting...")
 
 ShipController.init()
+CameraController.init()
 
--- When the server spawns our ship, pass the model to each controller
--- so they can reference it.  ShipSystem fires a BindableEvent or sets an
--- attribute on the character; we poll here as a simple fallback.
+-- When the server spawns our ship, pass the model to each controller.
+-- ShipSystem (#88) parents the ship model to a known location; adjust this
+-- path once the server implementation confirms the convention.
 local function onCharacterAdded(character)
-	-- ShipSystem (#88) will parent the ship model to a known location; adjust
-	-- this path once server implementation is known.
 	local shipModel = character:WaitForChild("ShipModel", 10)
 	if shipModel then
 		ShipController.setShip(shipModel)
-		-- CameraController.setShip(shipModel)  -- uncomment when #92 merges
+		CameraController.setShip(shipModel)
 	end
 end
 
