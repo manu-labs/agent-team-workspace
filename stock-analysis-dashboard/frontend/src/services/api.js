@@ -17,6 +17,18 @@ async function request(endpoint, options = {}) {
   return res.json();
 }
 
+// Normalizes a raw news item from the backend into the shape NewsCard expects.
+// The backend uses { title, published_at, symbols } but NewsCard expects
+// { headline, publishedAt, tickers }.
+function normalizeNewsItem(item) {
+  return {
+    ...item,
+    headline: item.headline || item.title || '',
+    publishedAt: item.publishedAt || item.published_at || null,
+    tickers: item.tickers || item.symbols || [],
+  };
+}
+
 // Stock endpoints
 export const stockApi = {
   search: (query) =>
@@ -40,8 +52,10 @@ export const earningsApi = {
 
 // News endpoints
 export const newsApi = {
-  getFeed: (limit = 20) => request('/news?limit=' + limit).then((d) => d.news),
-  getForStock: (ticker) => request('/news/' + ticker).then((d) => d.news),
+  getFeed: (limit = 20) =>
+    request('/news?limit=' + limit).then((d) => (d.news || []).map(normalizeNewsItem)),
+  getForStock: (ticker) =>
+    request('/news/' + ticker).then((d) => (d.news || []).map(normalizeNewsItem)),
 };
 
 // Favorites endpoints
@@ -61,3 +75,5 @@ export const aiApi = {
       body: JSON.stringify({ ticker, question, context_type: contextType }),
     }),
 };
+
+
