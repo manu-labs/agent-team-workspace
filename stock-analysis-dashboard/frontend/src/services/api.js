@@ -9,7 +9,7 @@ async function request(endpoint, options = {}) {
     ...options,
   });
 
-  if (\!res.ok) {
+  if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error?.message || body.error || 'Request failed: ' + res.status);
   }
