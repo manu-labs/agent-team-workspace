@@ -23,6 +23,7 @@ CameraController.init()
 local Remotes = ReplicatedStorage:WaitForChild("Remotes", 10)
 local ShipSpawnedRE = Remotes and Remotes:WaitForChild("ShipSpawned", 10)
 local ShipDespawnedRE = Remotes and Remotes:WaitForChild("ShipDespawned", 10)
+local GameStateChangedRE = Remotes and Remotes:WaitForChild("GameStateChanged", 10)
 
 if ShipSpawnedRE then
 	ShipSpawnedRE.OnClientEvent:Connect(function(data)
@@ -48,6 +49,15 @@ if ShipDespawnedRE then
 		end
 		-- Notify camera that the local ship is gone so it stops tracking
 		-- (CameraController gracefully handles a nil/destroyed model via PrimaryPart guard)
+	end)
+end
+
+-- When the round ends and the game returns to Lobby, restore the dock camera view.
+if GameStateChangedRE then
+	GameStateChangedRE.OnClientEvent:Connect(function(newState, _oldState)
+		if newState == "Lobby" then
+			CameraController.setLobbyCamera()
+		end
 	end)
 end
 
