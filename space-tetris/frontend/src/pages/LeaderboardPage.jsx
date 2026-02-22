@@ -33,7 +33,7 @@ export default function LeaderboardPage() {
       setLoading(true);
       try {
         const data = await leaderboardApi.get(period);
-        if (!cancelled) setScores(data.scores || data || []);
+        if (!cancelled) setScores(data.leaderboard || []);
       } catch {
         if (!cancelled) setScores([]);
       } finally {
@@ -178,4 +178,3 @@ export default function LeaderboardPage() {
     </div>
   );
 }
-
