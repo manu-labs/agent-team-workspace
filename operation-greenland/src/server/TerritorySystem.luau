@@ -1,8 +1,11 @@
 -- TerritorySystem.luau
 -- Server-side territory capture system.
--- Manages Greenland's coastal capture zones: progress fill/decay/contested logic,
--- per-zone scoring, win condition, and minimap replication.
+-- Manages Greenland's coastal capture zones: progress fill/decay, scoring,
+-- win condition, and client replication.
 -- Required by: src/server/init.luau
+--
+-- Integration: init(remotes, onVictory) — accepts shared remotes table from
+-- GameManager. No RemoteEvent folder is created here.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -13,8 +16,7 @@ local Utils = require(Shared:WaitForChild("Utils"))
 local TerritorySystem = {}
 
 -- ─── Zone definitions ──────────────────────────────────────────────────────────
--- Five coastal capture zones distributed along Greenland's southern and western coast.
--- Position.X/Z are map coordinates; Radius is the circular capture area in studs.
+-- Five coastal capture zones distributed along Greenland's coast.
 
 local ZONE_DEFINITIONS = {
 	{
@@ -51,60 +53,37 @@ local ZONE_DEFINITIONS = {
 
 -- ─── Internal state ────────────────────────────────────────────────────────────
 
--- Live zone states, keyed by ZoneId
 local _zones: {[string]: any} = {}
-
--- Accumulated score for the US Fleet
 local _score: number = 0
-
--- Whether the game is currently active (scoring paused outside of Active phase)
 local _active: boolean = false
-
--- RemoteEvents
 local _remotes: {[string]: RemoteEvent} = {}
-
--- Callback fired when the win condition is met: (reason: string) -> ()
 local _onVictory: ((string) -> ())?
 
 -- ─── Initialization ────────────────────────────────────────────────────────────
 
---- Set up zone state and RemoteEvents.
----  is called with a reason string when the US Fleet wins.
-function TerritorySystem.init(onVictory: ((string) -> ())?)
+--- Accept the shared remotes table from GameManager and set up zone states.
+---  is called with a reason string ("AllZonesCaptured" | "ScoreReached")
+--- when the US Fleet meets the win condition.
+function TerritorySystem.init(remotes: {[string]: RemoteEvent}, onVictory: ((string) -> ())?)
+	_remotes   = remotes
 	_onVictory = onVictory
 
-	-- Build initial zone states from definitions
 	for _, def in ipairs(ZONE_DEFINITIONS) do
 		_zones[def.ZoneId] = {
 			ZoneId          = def.ZoneId,
 			DisplayName     = def.DisplayName,
 			Position        = def.Position,
 			Radius          = def.Radius,
-			Owner           = "Neutral",    -- starts uncontrolled
-			CaptureProgress = 0,             -- 0–100
+			Owner           = "Neutral",
+			CaptureProgress = 0,    -- 0–100
+			-- Contested is always false in co-op mode (no NPC defenders).
+			-- Field kept in state for potential future PvP use.
 			Contested       = false,
 		}
 	end
-
-	-- Create RemoteEvents for minimap/HUD replication
-	local eventsFolder = Instance.new("Folder")
-	eventsFolder.Name = "TerritoryEvents"
-	eventsFolder.Parent = ReplicatedStorage
-
-	local function makeRemote(name: string): RemoteEvent
-		local e = Instance.new("RemoteEvent")
-		e.Name = name
-		e.Parent = eventsFolder
-		_remotes[name] = e
-		return e
-	end
-
-	makeRemote("TerritoryStateUpdate")  -- Server → All: full zone snapshot (minimap)
-	makeRemote("ZoneCaptured")          -- Server → All: a zone changed owner
-	makeRemote("ScoreUpdate")           -- Server → All: current score changed
 end
 
---- Mark the territory system as active or paused (tied to game phase).
+--- Enable or disable territory ticking (call setActive(true) when round starts).
 function TerritorySystem.setActive(active: boolean)
 	_active = active
 end
@@ -113,7 +92,7 @@ end
 
 --- Advance territory logic by  seconds.
 ---  is a list of { Position: Vector3 } for all currently alive ships.
---- Call this from the main server loop at the same rate as ShipSystem.tick().
+--- Call from the main server loop at the same rate as ShipSystem.tick().
 function TerritorySystem.tick(dt: number, shipPositions: {{Position: Vector3}})
 	if not _active then return end
 
@@ -121,7 +100,7 @@ function TerritorySystem.tick(dt: number, shipPositions: {{Position: Vector3}})
 	local scoreGained = 0
 
 	for _, zone in pairs(_zones) do
-		-- Count how many live ships are inside this zone
+		-- Count ships currently inside this zone
 		local shipsInZone = 0
 		for _, shipSnap in ipairs(shipPositions) do
 			if Utils.IsInZone(shipSnap.Position, zone.Position, zone.Radius) then
@@ -129,28 +108,20 @@ function TerritorySystem.tick(dt: number, shipPositions: {{Position: Vector3}})
 			end
 		end
 
-		-- Contested = NPC defense is active and ships are present
-		-- (Simplified: a zone is contested if it's Neutral and ships are inside)
-		zone.Contested = (zone.Owner == "Neutral" and shipsInZone > 0)
-
-		local prevProgress = zone.CaptureProgress
-		local prevOwner    = zone.Owner
-
 		if zone.Owner == "USFleet" then
-			-- Already captured — accumulate score and skip progress logic
+			-- Held zone: accumulate score each tick
 			scoreGained += GameConfig.SCORE_PER_ZONE_PER_SECOND * dt
 
-		elseif shipsInZone > 0 and not zone.Contested then
-			-- Uncontested capture: fill progress (more ships = faster)
+		elseif shipsInZone > 0 then
+			-- Ships present in a neutral zone: fill capture progress.
+			-- More ships = faster capture (linear scaling).
 			local rate = GameConfig.CAPTURE_RATE_PER_SHIP * shipsInZone * dt
 			zone.CaptureProgress = math.min(GameConfig.CAPTURE_MAX_PROGRESS, zone.CaptureProgress + rate)
 
 			if zone.CaptureProgress >= GameConfig.CAPTURE_MAX_PROGRESS then
 				zone.CaptureProgress = GameConfig.CAPTURE_MAX_PROGRESS
 				zone.Owner = "USFleet"
-				zone.Contested = false
 
-				-- Notify all clients of the ownership change
 				_remotes["ZoneCaptured"]:FireAllClients({
 					ZoneId      = zone.ZoneId,
 					DisplayName = zone.DisplayName,
@@ -158,37 +129,30 @@ function TerritorySystem.tick(dt: number, shipPositions: {{Position: Vector3}})
 				})
 			end
 
-		elseif shipsInZone == 0 and zone.Owner == "Neutral" and zone.CaptureProgress > 0 then
-			-- No ships present — progress decays back toward 0
+		elseif shipsInZone == 0 and zone.CaptureProgress > 0 then
+			-- No ships present: partial progress decays back toward 0
 			zone.CaptureProgress = math.max(0, zone.CaptureProgress - GameConfig.CAPTURE_DECAY_RATE * dt)
-
-		elseif zone.Contested then
-			-- Contested: progress is frozen while NPC defense is active
-			-- (progress neither fills nor decays)
 		end
 
 		if zone.Owner ~= "USFleet" then
 			allCaptured = false
 		end
-
-		-- Unused: prevProgress / prevOwner held for future change-detection events
-		_ = prevProgress
-		_ = prevOwner
 	end
 
-	-- Accumulate score
+	-- Broadcast score if it changed
 	if scoreGained > 0 then
 		_score += scoreGained
 		_remotes["ScoreUpdate"]:FireAllClients({ Score = math.floor(_score) })
 	end
 
-	-- ── Win condition checks ──────────────────────────────────────────────
+	-- Win condition: all zones captured
 	if allCaptured and _onVictory then
 		_active = false
 		_onVictory("AllZonesCaptured")
 		return
 	end
 
+	-- Win condition: score target reached
 	if _score >= GameConfig.VICTORY_SCORE and _onVictory then
 		_active = false
 		_onVictory("ScoreReached")
@@ -197,8 +161,8 @@ end
 
 -- ─── Replication ──────────────────────────────────────────────────────────────
 
---- Broadcast the full territory state to all clients (minimap data).
---- Call periodically from the main server loop (e.g. every 10 ticks).
+--- Broadcast the full territory state to all clients for minimap and HUD.
+--- Call every ~10 physics ticks from the main loop.
 function TerritorySystem.broadcastState()
 	local snapshot = {}
 	for _, zone in pairs(_zones) do
@@ -212,12 +176,11 @@ function TerritorySystem.broadcastState()
 			Contested       = zone.Contested,
 		})
 	end
-	_remotes["TerritoryStateUpdate"]:FireAllClients(snapshot)
+	_remotes["TerritoryUpdated"]:FireAllClients(snapshot)
 end
 
 -- ─── Queries ──────────────────────────────────────────────────────────────────
 
---- Return a list of all zone states (read-only snapshot for other systems).
 function TerritorySystem.getAllZones(): {any}
 	local result = {}
 	for _, zone in pairs(_zones) do
@@ -226,28 +189,22 @@ function TerritorySystem.getAllZones(): {any}
 	return result
 end
 
---- Return the zone state for a given ZoneId, or nil.
 function TerritorySystem.getZone(zoneId: string): any
 	return _zones[zoneId]
 end
 
---- Return the current US Fleet score.
 function TerritorySystem.getScore(): number
 	return _score
 end
 
---- Return the number of zones currently owned by the US Fleet.
 function TerritorySystem.getCapturedZoneCount(): number
 	local count = 0
 	for _, zone in pairs(_zones) do
-		if zone.Owner == "USFleet" then
-			count += 1
-		end
+		if zone.Owner == "USFleet" then count += 1 end
 	end
 	return count
 end
 
---- Return the total number of zones.
 function TerritorySystem.getTotalZoneCount(): number
 	return #ZONE_DEFINITIONS
 end
