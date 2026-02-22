@@ -1,1 +1,181 @@
-aW1wb3J0IHsgdXNlU3RhdGUsIHVzZUVmZmVjdCB9IGZyb20gJ3JlYWN0JzsKaW1wb3J0IHsgbGVhZGVyYm9hcmRBcGkgfSBmcm9tICcuLi9zZXJ2aWNlcy9hcGknOwppbXBvcnQgeyB1c2VBdXRoU3RvcmUgfSBmcm9tICcuLi9zdG9yZXMvYXV0aFN0b3JlJzsKCmNvbnN0IFBFUklPRFMgPSBbCiAgeyBrZXk6ICdhbGx0aW1lJywgbGFiZWw6ICdBbGwgVGltZScgfSwKICB7IGtleTogJ3dlZWtseScsIGxhYmVsOiAnVGhpcyBXZWVrJyB9LAogIHsga2V5OiAnZGFpbHknLCBsYWJlbDogJ1RvZGF5JyB9LApdOwoKZXhwb3J0IGRlZmF1bHQgZnVuY3Rpb24gTGVhZGVyYm9hcmRQYWdlKCkgewogIGNvbnN0IFtwZXJpb2QsIHNldFBlcmlvZF0gPSB1c2VTdGF0ZSgnYWxsdGltZScpOwogIGNvbnN0IFtzY29yZXMsIHNldFNjb3Jlc10gPSB1c2VTdGF0ZShbXSk7CiAgY29uc3QgW2xvYWRpbmcsIHNldExvYWRpbmddID0gdXNlU3RhdGUodHJ1ZSk7CiAgY29uc3QgeyB1c2VyIH0gPSB1c2VBdXRoU3RvcmUoKTsKCiAgdXNlRWZmZWN0KCgpID0+IHsKICAgIGxldCBjYW5jZWxsZWQgPSBmYWxzZTsKICAgIHNldExvYWRpbmcodHJ1ZSk7CiAgICBsZWFkZXJib2FyZEFwaS5nZXQocGVyaW9kKQogICAgICAudGhlbigoZGF0YSkgPT4gewogICAgICAgIGlmICghY2FuY2VsbGVkKSBzZXRTY29yZXMoZGF0YS5zY29yZXMgfHwgZGF0YSB8fCBbXSk7CiAgICAgIH0pCiAgICAgIC5jYXRjaCgoKSA9PiB7CiAgICAgICAgaWYgKCFjYW5jZWxsZWQpIHNldFNjb3JlcyhbXSk7CiAgICAgIH0pCiAgICAgIC5maW5hbGx5KCgpID0+IHsKICAgICAgICBpZiAoIWNhbmNlbGxlZCkgc2V0TG9hZGluZyhmYWxzZSk7CiAgICAgIH0pOwogICAgcmV0dXJuICgpID0+IHsgY2FuY2VsbGVkID0gdHJ1ZTsgfTsKICB9LCBbcGVyaW9kXSk7CgogIHJldHVybiAoCiAgICA8ZGl2IGNsYXNzTmFtZT0ibWF4LXctMnhsIG14LWF1dG8gcC00IHNwYWNlLXktNCI+CiAgICAgIDxoMSBjbGFzc05hbWU9ImZvbnQtZGlzcGxheSB0ZXh0LTJ4bCBmb250LWJvbGQgdHJhY2tpbmctd2lkZXIgdGV4dC1uZW9uLWN5YW4gbmVvbi10ZXh0Ij4KICAgICAgICBMZWFkZXJib2FyZAogICAgICA8L2gxPgoKICAgICAgPGRpdiBjbGFzc05hbWU9ImZsZXggZ2FwLTIiPgogICAgICAgIHtQRVJJT0RTLm1hcCgocCkgPT4gKAogICAgICAgICAgPGJ1dHRvbgogICAgICAgICAgICBrZXk9e3Aua2V5fQogICAgICAgICAgICBvbkNsaWNrPXsoKSA9PiBzZXRQZXJpb2QocC5rZXkpfQogICAgICAgICAgICBjbGFzc05hbWU9e2BweC00IHB5LTIgcm91bmRlZC1sZyB0ZXh0LXNtIGZvbnQtbW9ubyB0cmFuc2l0aW9uLWNvbG9ycyAkewogICAgICAgICAgICAgIHBlcmlvZCA9PT0gcC5rZXkKICAgICAgICAgICAgICAgID8gJ2JnLW5lb24tY3lhbi8yMCB0ZXh0LW5lb24tY3lhbiBib3JkZXIgYm9yZGVyLW5lb24tY3lhbi80MCcKICAgICAgICAgICAgICAgIDogJ2JnLXNwYWNlLTcwMC80MCB0ZXh0LXdoaXRlLzUwIGJvcmRlciBib3JkZXItd2hpdGUvNSBob3Zlcjp0ZXh0LXdoaXRlLzgwJwogICAgICAgICAgICB9YH0KICAgICAgICAgID4KICAgICAgICAgICAge3AubGFiZWx9CiAgICAgICAgICA8L2J1dHRvbj4KICAgICAgICApKX0KICAgICAgPC9kaXY+CgogICAgICA8ZGl2IGNsYXNzTmFtZT0iZ2xhc3MtcGFuZWwgb3ZlcmZsb3ctaGlkZGVuIj4KICAgICAgICA8dGFibGUgY2xhc3NOYW1lPSJ3LWZ1bGwgdGV4dC1zbSBmb250LW1vbm8iPgogICAgICAgICAgPHRoZWFkPgogICAgICAgICAgICA8dHIgY2xhc3NOYW1lPSJ0ZXh0LXdoaXRlLzQwIHRleHQteHMgdXBwZXJjYXNlIGJvcmRlci1iIGJvcmRlci13aGl0ZS8xMCI+CiAgICAgICAgICAgICAgPHRoIGNsYXNzTmFtZT0icHgtNCBweS0zIHRleHQtbGVmdCI+UmFuazwvdGg+CiAgICAgICAgICAgICAgPHRoIGNsYXNzTmFtZT0icHgtNCBweS0zIHRleHQtbGVmdCI+UGxheWVyPC90aD4KICAgICAgICAgICAgICA8dGggY2xhc3NOYW1lPSJweC00IHB5LTMgdGV4dC1yaWdodCI+U2NvcmU8L3RoPgogICAgICAgICAgICAgIDx0aCBjbGFzc05hbWU9InB4LTQgcHktMyB0ZXh0LXJpZ2h0Ij5MZXZlbDwvdGg+CiAgICAgICAgICAgICAgPHRoIGNsYXNzTmFtZT0icHgtNCBweS0zIHRleHQtcmlnaHQiPkxpbmVzPC90aD4KICAgICAgICAgICAgPC90cj4KICAgICAgICAgIDwvdGhlYWQ+CiAgICAgICAgICA8dGJvZHk+CiAgICAgICAgICAgIHtsb2FkaW5nID8gKAogICAgICAgICAgICAgIDx0cj48dGQgY29sU3Bhbj17NX0gY2xhc3NOYW1lPSJweC00IHB5LTggdGV4dC1jZW50ZXIgdGV4dC13aGl0ZS8zMCI+TG9hZGluZy4uLjwvdGQ+PC90cj4KICAgICAgICAgICAgKSA6IHNjb3Jlcy5sZW5ndGggPT09IDAgPyAoCiAgICAgICAgICAgICAgPHRyPjx0ZCBjb2xTcGFuPXs1fSBjbGFzc05hbWU9InB4LTQgcHktOCB0ZXh0LWNlbnRlciB0ZXh0LXdoaXRlLzMwIj5ObyBzY29yZXMgeWV0LiBCZSB0aGUgZmlyc3QhPC90ZD48L3RyPgogICAgICAgICAgICApIDogKAogICAgICAgICAgICAgIHNjb3Jlcy5tYXAoKHMsIGkpID0+ICgKICAgICAgICAgICAgICAgIDx0cgogICAgICAgICAgICAgICAgICBrZXk9e3MuaWQgfHwgaX0KICAgICAgICAgICAgICAgICAgY2xhc3NOYW1lPXtgYm9yZGVyLWIgYm9yZGVyLXdoaXRlLzUgJHsKICAgICAgICAgICAgICAgICAgICB1c2VyICYmIHMudXNlcm5hbWUgPT09IHVzZXIudXNlcm5hbWUgPyAnYmctbmVvbi1jeWFuLzUnIDogJycKICAgICAgICAgICAgICAgICAgfWB9CiAgICAgICAgICAgICAgICA+CiAgICAgICAgICAgICAgICAgIDx0ZCBjbGFzc05hbWU9InB4LTQgcHktMyB0ZXh0LXdoaXRlLzYwIj57aSArIDF9PC90ZD4KICAgICAgICAgICAgICAgICAgPHRkIGNsYXNzTmFtZT0icHgtNCBweS0zIHRleHQtd2hpdGUiPntzLnVzZXJuYW1lfTwvdGQ+CiAgICAgICAgICAgICAgICAgIDx0ZCBjbGFzc05hbWU9InB4LTQgcHktMyB0ZXh0LXJpZ2h0IHRleHQtbmVvbi15ZWxsb3ciPntzLnNjb3JlPy50b0xvY2FsZVN0cmluZygpfTwvdGQ+CiAgICAgICAgICAgICAgICAgIDx0ZCBjbGFzc05hbWU9InB4LTQgcHktMyB0ZXh0LXJpZ2h0IHRleHQtd2hpdGUvNjAiPntzLmxldmVsfTwvdGQ+CiAgICAgICAgICAgICAgICAgIDx0ZCBjbGFzc05hbWU9InB4LTQgcHktMyB0ZXh0LXJpZ2h0IHRleHQtd2hpdGUvNjAiPntzLmxpbmVzX2NsZWFyZWR9PC90ZD4KICAgICAgICAgICAgICAgIDwvdHI+CiAgICAgICAgICAgICAgKSkKICAgICAgICAgICAgKX0KICAgICAgICAgIDwvdGJvZHk+CiAgICAgICAgPC90YWJsZT4KICAgICAgPC9kaXY+CiAgICA8L2Rpdj4KICApOwp9Cg==
+import { useState, useEffect, useRef } from 'react';
+import { leaderboardApi, scoresApi } from '../services/api';
+import { useAuthStore } from '../stores/authStore';
+
+const PERIODS = [
+  { key: 'alltime', label: 'All Time' },
+  { key: 'weekly', label: 'This Week' },
+  { key: 'daily', label: 'Today' },
+];
+
+function formatDate(dateStr) {
+  if (!dateStr) return '';
+  try {
+    return new Date(dateStr).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch {
+    return '';
+  }
+}
+
+export default function LeaderboardPage() {
+  const [period, setPeriod] = useState('alltime');
+  const [scores, setScores] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [personalBest, setPersonalBest] = useState(null);
+  const { user, isAuthenticated, token } = useAuthStore();
+
+  // Fetch leaderboard + set up 30-second auto-refresh
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      if (cancelled) return;
+      setLoading(true);
+      try {
+        const data = await leaderboardApi.get(period);
+        if (!cancelled) setScores(data.scores || data || []);
+      } catch {
+        if (!cancelled) setScores([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    load();
+    const interval = setInterval(load, 30000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [period]);
+
+  // Fetch user's personal best when authenticated
+  useEffect(() => {
+    if (!isAuthenticated || !token) {
+      setPersonalBest(null);
+      return;
+    }
+    scoresApi.myScores(token)
+      .then((data) => {
+        const list = data.scores || data || [];
+        if (list.length > 0) {
+          const best = list.reduce((a, b) => (b.score > a.score ? b : a), list[0]);
+          setPersonalBest(best);
+        } else {
+          setPersonalBest(null);
+        }
+      })
+      .catch(() => setPersonalBest(null));
+  }, [isAuthenticated, token]);
+
+  return (
+    <div className="max-w-2xl mx-auto p-4 space-y-4">
+      <h1 className="font-display text-2xl font-bold tracking-wider text-neon-cyan neon-text">
+        Leaderboard
+      </h1>
+
+      {/* Personal best — shown when logged in */}
+      {isAuthenticated && personalBest && (
+        <div className="glass-panel p-4 border border-neon-cyan/20">
+          <p className="text-xs font-mono text-white/40 mb-2 tracking-widest">YOUR PERSONAL BEST</p>
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <span className="font-mono text-neon-green text-sm font-bold">{user?.username}</span>
+            <div className="flex items-center gap-6 font-mono text-sm">
+              <span className="text-neon-yellow font-bold text-xl">
+                {personalBest.score?.toLocaleString()}
+              </span>
+              <span className="text-white/50">Lv {personalBest.level}</span>
+              <span className="text-white/50">{personalBest.lines_cleared} lines</span>
+              <span className="text-white/30 text-xs">{formatDate(personalBest.created_at)}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isAuthenticated && !personalBest && (
+        <div className="glass-panel p-4 border border-white/5">
+          <p className="text-xs font-mono text-white/30 text-center">
+            No scores yet — play a game to get on the board!
+          </p>
+        </div>
+      )}
+
+      {/* Period tabs */}
+      <div className="flex gap-2">
+        {PERIODS.map((p) => (
+          <button
+            key={p.key}
+            onClick={() => setPeriod(p.key)}
+            className={`px-4 py-2 rounded-lg text-sm font-mono transition-colors ${
+              period === p.key
+                ? 'bg-neon-cyan/20 text-neon-cyan border border-neon-cyan/40'
+                : 'bg-space-700/40 text-white/50 border border-white/5 hover:text-white/80'
+            }`}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Scores table */}
+      <div className="glass-panel overflow-hidden">
+        <table className="w-full text-sm font-mono">
+          <thead>
+            <tr className="text-white/40 text-xs uppercase border-b border-white/10">
+              <th className="px-4 py-3 text-left w-12">Rank</th>
+              <th className="px-4 py-3 text-left">Player</th>
+              <th className="px-4 py-3 text-right">Score</th>
+              <th className="px-4 py-3 text-right">Level</th>
+              <th className="px-4 py-3 text-right">Lines</th>
+              <th className="px-4 py-3 text-right hidden sm:table-cell">Date</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr>
+                <td colSpan={6} className="px-4 py-10 text-center text-white/30">
+                  Loading...
+                </td>
+              </tr>
+            ) : scores.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="px-4 py-10 text-center text-white/30">
+                  No scores yet. Be the first!
+                </td>
+              </tr>
+            ) : (
+              scores.map((s, i) => {
+                const isMe = user && s.username === user.username;
+                return (
+                  <tr
+                    key={s.id || i}
+                    className={`border-b border-white/5 transition-colors ${
+                      isMe ? 'bg-neon-cyan/10' : 'hover:bg-white/[0.02]'
+                    }`}
+                  >
+                    <td className="px-4 py-3 text-white/40">{i + 1}</td>
+                    <td className={`px-4 py-3 ${isMe ? 'text-neon-cyan font-bold' : 'text-white'}`}>
+                      {s.username}
+                      {isMe && (
+                        <span className="ml-2 text-xs text-neon-cyan/50 font-normal">YOU</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right text-neon-yellow font-bold">
+                      {s.score?.toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3 text-right text-white/60">{s.level}</td>
+                    <td className="px-4 py-3 text-right text-white/60">{s.lines_cleared}</td>
+                    <td className="px-4 py-3 text-right text-white/30 text-xs hidden sm:table-cell">
+                      {formatDate(s.created_at)}
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
