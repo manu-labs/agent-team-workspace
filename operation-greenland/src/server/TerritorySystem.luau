@@ -20,19 +20,44 @@ local TerritorySystem = {}
 
 -- Zone definitions: five coastal capture zones along Greenland's coast.
 local ZONE_DEFINITIONS = {
-	{ ZoneId = "nuuk_harbor",       DisplayName = "Nuuk Harbor",       Position = Vector3.new(-800,  0, 5500), Radius = 250 },
-	{ ZoneId = "ilulissat_port",    DisplayName = "Ilulissat Port",    Position = Vector3.new(-1800, 0, 3800), Radius = 220 },
-	{ ZoneId = "kangerlussuaq_bay", DisplayName = "Kangerlussuaq Bay", Position = Vector3.new(-400,  0, 2200), Radius = 280 },
-	{ ZoneId = "narsarsuaq_dock",   DisplayName = "Narsarsuaq Dock",   Position = Vector3.new( 600,  0, 6200), Radius = 200 },
-	{ ZoneId = "thule_base",        DisplayName = "Thule Base",        Position = Vector3.new(-2600, 0, 1200), Radius = 240 },
+	{
+		ZoneId = "nuuk_harbor",
+		DisplayName = "Nuuk Harbor",
+		Position = Vector3.new(-800, 0, 5500),
+		Radius = 250,
+	},
+	{
+		ZoneId = "ilulissat_port",
+		DisplayName = "Ilulissat Port",
+		Position = Vector3.new(-1800, 0, 3800),
+		Radius = 220,
+	},
+	{
+		ZoneId = "kangerlussuaq_bay",
+		DisplayName = "Kangerlussuaq Bay",
+		Position = Vector3.new(-400, 0, 2200),
+		Radius = 280,
+	},
+	{
+		ZoneId = "narsarsuaq_dock",
+		DisplayName = "Narsarsuaq Dock",
+		Position = Vector3.new(600, 0, 6200),
+		Radius = 200,
+	},
+	{
+		ZoneId = "thule_base",
+		DisplayName = "Thule Base",
+		Position = Vector3.new(-2600, 0, 1200),
+		Radius = 240,
+	},
 }
 
-local _zones: {[string]: any} = {}
+local _zones: { [string]: any } = {}
 local _score: number = 0
 local _active: boolean = false
-local _remotes: {[string]: RemoteEvent} = {}
+local _remotes: { [string]: RemoteEvent } = {}
 local _onVictory: ((string) -> ())?
-local _onCapture: ((number) -> ())?  -- called with userId for each ship in zone at flip
+local _onCapture: ((number) -> ())? -- called with userId for each ship in zone at flip
 
 -- ─── Initialization ────────────────────────────────────────────────────────────
 
@@ -47,23 +72,23 @@ local _onCapture: ((number) -> ())?  -- called with userId for each ship in zone
 ---     function(userId) GameManager.AddCapture(Players:GetPlayerByUserId(userId)) end
 ---   )
 function TerritorySystem.init(
-	remotes: {[string]: RemoteEvent},
+	remotes: { [string]: RemoteEvent },
 	onVictory: ((string) -> ())?,
 	onCapture: ((number) -> ())?
 )
-	_remotes   = remotes
+	_remotes = remotes
 	_onVictory = onVictory
 	_onCapture = onCapture
 
 	for _, def in ipairs(ZONE_DEFINITIONS) do
 		_zones[def.ZoneId] = {
-			ZoneId          = def.ZoneId,
-			DisplayName     = def.DisplayName,
-			Position        = def.Position,
-			Radius          = def.Radius,
-			Owner           = "Neutral",
-			CaptureProgress = 0,      -- 0-100
-			Contested       = false,  -- always false in co-op; kept for future PvP use
+			ZoneId = def.ZoneId,
+			DisplayName = def.DisplayName,
+			Position = def.Position,
+			Radius = def.Radius,
+			Owner = "Neutral",
+			CaptureProgress = 0, -- 0-100
+			Contested = false, -- always false in co-op; kept for future PvP use
 		}
 	end
 end
@@ -85,15 +110,17 @@ end
 ---       table.insert(positions, { Position = ship.Position, OwnerId = ship.OwnerId })
 ---     end
 ---   end
-function TerritorySystem.tick(dt: number, shipPositions: {{Position: Vector3, OwnerId: number}})
-	if not _active then return end
+function TerritorySystem.tick(dt: number, shipPositions: { { Position: Vector3, OwnerId: number } })
+	if not _active then
+		return
+	end
 
 	local allCaptured = true
 	local scoreGained = 0
 
 	for _, zone in pairs(_zones) do
-		local shipsInZone    = 0
-		local ownerIdsInZone: {number} = {}
+		local shipsInZone = 0
+		local ownerIdsInZone: { number } = {}
 
 		for _, snap in ipairs(shipPositions) do
 			if Utils.IsInZone(snap.Position, zone.Position, zone.Radius) then
@@ -104,7 +131,6 @@ function TerritorySystem.tick(dt: number, shipPositions: {{Position: Vector3, Ow
 
 		if zone.Owner == "USFleet" then
 			scoreGained += GameConfig.SCORE_PER_ZONE_PER_SECOND * dt
-
 		elseif shipsInZone > 0 then
 			-- Fill progress; more ships = faster capture
 			local rate = GameConfig.CAPTURE_RATE_PER_SHIP * shipsInZone * dt
@@ -115,9 +141,9 @@ function TerritorySystem.tick(dt: number, shipPositions: {{Position: Vector3, Ow
 				zone.Owner = "USFleet"
 
 				_remotes["ZoneCaptured"]:FireAllClients({
-					ZoneId      = zone.ZoneId,
+					ZoneId = zone.ZoneId,
 					DisplayName = zone.DisplayName,
-					NewOwner    = "USFleet",
+					NewOwner = "USFleet",
 				})
 
 				-- Credit each player who was in the zone at the moment of flip
@@ -127,7 +153,6 @@ function TerritorySystem.tick(dt: number, shipPositions: {{Position: Vector3, Ow
 					end
 				end
 			end
-
 		elseif zone.CaptureProgress > 0 then
 			-- No ships present: partial progress decays
 			zone.CaptureProgress = math.max(0, zone.CaptureProgress - GameConfig.CAPTURE_DECAY_RATE * dt)
@@ -162,13 +187,13 @@ function TerritorySystem.broadcastState()
 	local snapshot = {}
 	for _, zone in pairs(_zones) do
 		table.insert(snapshot, {
-			ZoneId          = zone.ZoneId,
-			DisplayName     = zone.DisplayName,
-			Position        = zone.Position,
-			Radius          = zone.Radius,
-			Owner           = zone.Owner,
+			ZoneId = zone.ZoneId,
+			DisplayName = zone.DisplayName,
+			Position = zone.Position,
+			Radius = zone.Radius,
+			Owner = zone.Owner,
 			CaptureProgress = zone.CaptureProgress,
-			Contested       = zone.Contested,
+			Contested = zone.Contested,
 		})
 	end
 	_remotes["TerritoryUpdate"]:FireAllClients(snapshot)
@@ -176,9 +201,11 @@ end
 
 -- ─── Queries ──────────────────────────────────────────────────────────────────
 
-function TerritorySystem.getAllZones(): {any}
+function TerritorySystem.getAllZones(): { any }
 	local r = {}
-	for _, z in pairs(_zones) do table.insert(r, z) end
+	for _, z in pairs(_zones) do
+		table.insert(r, z)
+	end
 	return r
 end
 
@@ -192,7 +219,11 @@ end
 
 function TerritorySystem.getCapturedZoneCount(): number
 	local n = 0
-	for _, z in pairs(_zones) do if z.Owner == "USFleet" then n += 1 end end
+	for _, z in pairs(_zones) do
+		if z.Owner == "USFleet" then
+			n += 1
+		end
+	end
 	return n
 end
 

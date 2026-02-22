@@ -1,5 +1,10 @@
 std = "roblox"
-# multiple_statements is common idiomatic Roblox Luau (single-line if/guard patterns)
-# and is intentionally suppressed project-wide.
-[rules]
-multiple_statements = "allow"
+
+[lints]
+empty_if = "warn"
+incorrect_standard_library_use = "warn"
+must_use = "warn"
+shadowing = "warn"
+suspicious_reverse_usage = "warn"
+unscoped_variables = "warn"
+unused_variable = "warn"

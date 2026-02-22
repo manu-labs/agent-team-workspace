@@ -39,14 +39,14 @@ end)
 CombatSystem.init(remotes, ShipSystem, GameManager)
 
 -- TerritorySystem: capture zones, scoring, win condition.
-TerritorySystem.init(
-	remotes,
-	function(reason) GameManager.TriggerVictory() end,
-	function(userId)
-		local player = Players:GetPlayerByUserId(userId)
-		if player then GameManager.AddCapture(player) end
+TerritorySystem.init(remotes, function(_reason)
+	GameManager.TriggerVictory()
+end, function(userId)
+	local player = Players:GetPlayerByUserId(userId)
+	if player then
+		GameManager.AddCapture(player)
 	end
-)
+end)
 
 -- HazardSystem: icebergs, storms, shallow water.
 HazardSystem.init(remotes, ShipSystem)
@@ -54,13 +54,13 @@ HazardSystem.init(remotes, ShipSystem)
 -- ─── Broadcast throttles ─────────────────────────────────────────────────────
 
 local shipBroadcastAccum = 0
-local SHIP_BROADCAST_INTERVAL = 0.066       -- ~15 updates/sec for smooth rendering
+local SHIP_BROADCAST_INTERVAL = 0.066 -- ~15 updates/sec for smooth rendering
 local minimapBroadcastAccum = 0
-local MINIMAP_BROADCAST_INTERVAL = 0.5      -- minimap dots update every 0.5s
+local MINIMAP_BROADCAST_INTERVAL = 0.5 -- minimap dots update every 0.5s
 local territoryBroadcastAccum = 0
-local TERRITORY_BROADCAST_INTERVAL = 0.5    -- zone state every 0.5s
+local TERRITORY_BROADCAST_INTERVAL = 0.5 -- zone state every 0.5s
 local hazardBroadcastAccum = 0
-local HAZARD_BROADCAST_INTERVAL = 0.25      -- storm positions every 0.25s
+local HAZARD_BROADCAST_INTERVAL = 0.25 -- storm positions every 0.25s
 
 -- ─── Main game loop ──────────────────────────────────────────────────────────
 -- Heartbeat fires ~60 times/sec, after physics.
