@@ -86,6 +86,7 @@ export default function NewsFeed({ ticker }) {
       if (data && data.length > 0) {
         setNews(data);
       } else {
+        // API returned empty (service not implemented yet) — use placeholders
         setNews(PLACEHOLDER_NEWS);
       }
     } catch (err) {
