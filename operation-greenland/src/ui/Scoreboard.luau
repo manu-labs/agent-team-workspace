@@ -1,8 +1,7 @@
 -- Scoreboard.luau
 -- Tab-hold scoreboard overlay: player stats table, territory summary, game timer.
--- ScoreUpdate fires per-player (userId, score) — cached client-side.
--- ScoreboardUpdated is NOT a real event; this module reconstructs the table
--- from cached per-player scores when the scoreboard is opened.
+-- Uses ScoreboardUpdated (full table broadcast every ~2s from GameManager)
+-- and TerritoryUpdate for zone counts.
 
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -11,15 +10,11 @@ local TweenService      = game:GetService("TweenService")
 
 local LocalPlayer = Players.LocalPlayer
 
-local Remotes                = ReplicatedStorage:WaitForChild("Remotes", 10)
-local ScoreUpdateEvent       = Remotes and Remotes:WaitForChild("ScoreUpdate", 10)
-local GameTimerUpdatedEvent  = Remotes and Remotes:WaitForChild("GameTimerUpdated", 10)
-local TerritoryUpdateEvent   = Remotes and Remotes:WaitForChild("TerritoryUpdate", 10)
-local GameStateChangedEvent  = Remotes and Remotes:WaitForChild("GameStateChanged", 10)
-
--- ─── Score cache ─────────────────────────────────────────────────────────────
--- { [userId: number] -> { name: string, score: number } }
-local scoreCache = {}
+local Remotes                  = ReplicatedStorage:WaitForChild("Remotes", 10)
+local ScoreboardUpdatedEvent   = Remotes and Remotes:WaitForChild("ScoreboardUpdated", 10)
+local GameTimerUpdatedEvent    = Remotes and Remotes:WaitForChild("GameTimerUpdated", 10)
+local TerritoryUpdateEvent     = Remotes and Remotes:WaitForChild("TerritoryUpdate", 10)
+local GameStateChangedEvent    = Remotes and Remotes:WaitForChild("GameStateChanged", 10)
 
 -- ─── Colors ──────────────────────────────────────────────────────────────────
 
@@ -54,11 +49,14 @@ local function makeTextLabel(parent, text, size, pos, color, font, xAlign)
 	return lbl
 end
 
+-- Columns matching the ScoreboardUpdated payload shape
 local COLUMNS = {
-	{ label = "Player",   width = 0.35 },
-	{ label = "Score",    width = 0.25 },
-	{ label = "Rank",     width = 0.20 },
-	{ label = "Status",   width = 0.20 },
+	{ label = "Player",   key = "name",     width = 0.28 },
+	{ label = "Ship",     key = "shipType",  width = 0.18 },
+	{ label = "Kills",    key = "kills",     width = 0.12 },
+	{ label = "Deaths",   key = "deaths",    width = 0.12 },
+	{ label = "Captures", key = "captures",  width = 0.14 },
+	{ label = "Score",    key = "score",     width = 0.16 },
 }
 
 local function buildGui()
@@ -76,12 +74,13 @@ local function buildGui()
 	panel.Name              = "Panel"
 	panel.AnchorPoint       = Vector2.new(0.5, 0.5)
 	panel.Position          = UDim2.fromScale(0.5, 0.5)
-	panel.Size              = UDim2.fromScale(0.65, 0.60)
+	panel.Size              = UDim2.fromScale(0.70, 0.65)
 	panel.BackgroundColor3  = COLOR.bg
 	panel.BackgroundTransparency = 0.08
 	panel.BorderSizePixel   = 0
 	panel.Parent            = screenGui
 	Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 10)
+
 	local stroke = Instance.new("UIStroke")
 	stroke.Color     = COLOR.border
 	stroke.Thickness = 1.5
@@ -105,7 +104,7 @@ local function buildGui()
 		end)
 	end
 
-	-- Header row
+	-- Column header row
 	local headerRow = Instance.new("Frame")
 	headerRow.Size             = UDim2.new(1, 0, 0, 28)
 	headerRow.Position         = UDim2.new(0, 0, 0, 36)
@@ -116,8 +115,9 @@ local function buildGui()
 
 	local xOff = 0
 	for _, col in ipairs(COLUMNS) do
-		makeTextLabel(headerRow, col.label, UDim2.new(col.width, 0, 1, 0),
-			UDim2.fromScale(xOff, 0), COLOR.textHeader, Enum.Font.GothamBold)
+		makeTextLabel(headerRow, col.label,
+			UDim2.new(col.width, 0, 1, 0), UDim2.fromScale(xOff, 0),
+			COLOR.textHeader, Enum.Font.GothamBold)
 		xOff = xOff + col.width
 	end
 
@@ -137,19 +137,13 @@ local function buildGui()
 	listLayout.Padding        = UDim.new(0, 0)
 	listLayout.Parent         = scrollFrame
 
-	local function rebuildRows()
+	-- Rebuild the player table from the full payload
+	local function rebuildRows(players)
 		for _, child in ipairs(scrollFrame:GetChildren()) do
 			if child:IsA("Frame") then child:Destroy() end
 		end
-		-- Sort by score descending
-		local sorted = {}
-		for userId, data in pairs(scoreCache) do
-			table.insert(sorted, { userId = userId, name = data.name, score = data.score })
-		end
-		table.sort(sorted, function(a, b) return a.score > b.score end)
-
-		for i, entry in ipairs(sorted) do
-			local isLocal = (entry.userId == LocalPlayer.UserId)
+		for i, entry in ipairs(players) do
+			local isLocal = (entry.name == LocalPlayer.Name or entry.name == LocalPlayer.DisplayName)
 			local bgColor = isLocal and COLOR.rowPlayer
 				or (i % 2 == 0 and COLOR.rowEven or COLOR.rowOdd)
 
@@ -160,10 +154,10 @@ local function buildGui()
 			row.BorderSizePixel   = 0
 			row.Parent            = scrollFrame
 
-			local values = { entry.name, tostring(entry.score), "#" .. i, isLocal and "You" or "" }
 			local xO = 0
-			for ci, col in ipairs(COLUMNS) do
-				makeTextLabel(row, values[ci],
+			for _, col in ipairs(COLUMNS) do
+				local value = tostring(entry[col.key] or "—")
+				makeTextLabel(row, value,
 					UDim2.new(col.width, 0, 1, 0), UDim2.fromScale(xO, 0),
 					isLocal and COLOR.textWhite or COLOR.textGray,
 					isLocal and Enum.Font.GothamBold or Enum.Font.Gotham)
@@ -172,18 +166,14 @@ local function buildGui()
 		end
 	end
 
-	-- Cache incoming per-player score updates
-	if ScoreUpdateEvent then
-		ScoreUpdateEvent.OnClientEvent:Connect(function(userId, score)
-			local player = Players:GetPlayerByUserId(userId)
-			local name = player and player.DisplayName or ("Player_" .. userId)
-			scoreCache[userId] = { name = name, score = score }
-			-- Rebuild if scoreboard is currently visible
-			if screenGui.Enabled then rebuildRows() end
+	-- ScoreboardUpdated fires every ~2s during Sailing/Combat and once at round end
+	if ScoreboardUpdatedEvent then
+		ScoreboardUpdatedEvent.OnClientEvent:Connect(function(players)
+			rebuildRows(players)
 		end)
 	end
 
-	-- Territory summary (bottom)
+	-- Territory summary (bottom of panel)
 	local territorySummary = Instance.new("Frame")
 	territorySummary.Size              = UDim2.new(1, 0, 0, 36)
 	territorySummary.Position          = UDim2.new(0, 0, 1, -36)
@@ -210,13 +200,12 @@ local function buildGui()
 		end)
 	end
 
-	-- Show/hide on Tab; rebuild rows when opening
+	-- Tab hold: show scoreboard
 	local FADE = 0.15
 	UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		if gameProcessed then return end
 		if input.KeyCode == Enum.KeyCode.Tab then
 			screenGui.Enabled = true
-			rebuildRows()
 			TweenService:Create(panel, TweenInfo.new(FADE), { BackgroundTransparency = 0.08 }):Play()
 		end
 	end)
@@ -227,11 +216,13 @@ local function buildGui()
 		end
 	end)
 
-	-- Hide scoreboard when not in an active gameplay state
+	-- Hide scoreboard when not in an active gameplay phase
 	if GameStateChangedEvent then
 		GameStateChangedEvent.OnClientEvent:Connect(function(newState, _old)
 			local inGame = (newState == "Combat" or newState == "Sailing")
-			if not inGame then screenGui.Enabled = false end
+			if not inGame and screenGui.Enabled then
+				screenGui.Enabled = false
+			end
 		end)
 	end
 end
