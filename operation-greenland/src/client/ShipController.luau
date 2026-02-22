@@ -1,49 +1,92 @@
 -- ShipController.luau
--- Client-side ship controller: WASD movement input, mouse aiming, and weapon firing.
--- All positional authority is server-side (ShipSystem #88); this module reads input
--- and fires RemoteEvents — it never moves the ship model directly.
+-- Client-side ship input and workspace model management.
+-- Listens to ShipSpawned/ShipDespawned/ShipStateUpdate RemoteEvents from ShipSystem (#88)
+-- to instantiate and position all ship models in workspace.
+-- Drives WASD input + weapon firing for the local player's ship only.
+-- Server (ShipSystem) remains authoritative for all movement.
 
-local Players          = game:GetService("Players")
-local UserInputService = game:GetService("UserInputService")
-local RunService       = game:GetService("RunService")
-local TweenService     = game:GetService("TweenService")
+local Players           = game:GetService("Players")
+local UserInputService  = game:GetService("UserInputService")
+local RunService        = game:GetService("RunService")
+local TweenService      = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local LocalPlayer = Players.LocalPlayer
 local Mouse       = LocalPlayer:GetMouse()
 
--- RemoteEvents are created server-side by GameManager (#87) in ReplicatedStorage.Remotes.
--- WaitForChild is used so this module works even if Remotes load slightly late.
--- Returns nil on timeout — all usages below are nil-guarded.
-local Remotes       = ReplicatedStorage:WaitForChild("Remotes", 10)
-local ShipMoveInput = Remotes and Remotes:WaitForChild("ShipMoveInput", 10)  -- {forward:number, turn:number}
-local FireWeapon    = Remotes and Remotes:WaitForChild("FireWeapon", 10)     -- (weaponId, origin, direction)
-local UseAbility    = Remotes and Remotes:FindFirstChild("UseAbility")        -- added by CombatSystem (#89); FindFirstChild to be safe if not yet created
+-- ─── Remotes ─────────────────────────────────────────────────────────────────
+-- All RemoteEvents created server-side by GameManager in ReplicatedStorage.Remotes.
+-- WaitForChild with timeout; all usages below are nil-guarded.
 
--- ─── State ──────────────────────────────────────────────────────────────────
+local Remotes         = ReplicatedStorage:WaitForChild("Remotes", 10)
+local ShipSpawnedRE   = Remotes and Remotes:WaitForChild("ShipSpawned",    10)
+local ShipDespawnedRE = Remotes and Remotes:WaitForChild("ShipDespawned",  10)
+local ShipDestroyedRE = Remotes and Remotes:WaitForChild("ShipDestroyed",  10)
+local ShipStateRE     = Remotes and Remotes:WaitForChild("ShipStateUpdate",10)
+local ShipMoveInput   = Remotes and Remotes:WaitForChild("ShipMoveInput",  10)
+local FireWeapon      = Remotes and Remotes:WaitForChild("FireWeapon",     10)
+local UseAbility      = Remotes and Remotes:FindFirstChild("UseAbility")   -- added by CombatSystem (#89); graceful lookup
 
-local shipModel  = nil   -- set via ShipController.setShip() when ship spawns
-local throttle   = 0     -- -1 (reverse) … 0 … 1 (full ahead)
-local rudder     = 0     -- -1 (left)    … 0 … 1 (right)
+-- ─── State ───────────────────────────────────────────────────────────────────
 
--- ─── Cosmetic tilt ───────────────────────────────────────────────────────────
--- We tilt a dedicated cosmetic child Part rather than PrimaryPart to avoid
--- fighting the server's CFrame replication on PrimaryPart.
+-- All workspace ship models keyed by ShipId string
+local workspaceShips: {[string]: Model} = {}
 
-local function getTiltPart()
-	if not shipModel then return nil end
-	-- If ShipSystem provides a TiltPart child, use it; otherwise no tilt.
-	return shipModel:FindFirstChild("TiltPart", true)
+-- Local player's active ship (set when ShipSpawned fires for our userId)
+local localShipId:    string? = nil
+local localShipModel: Model?  = nil
+
+-- Input state
+local throttle = 0
+local rudder   = 0
+local inputDisabled = false   -- true while sink animation plays
+
+-- ─── Workspace model helpers ─────────────────────────────────────────────────
+
+local ShipModels = ReplicatedStorage:WaitForChild("ShipModels", 10)
+
+-- Clone the template for modelId, name it "Ship_<shipId>", parent to workspace.
+local function spawnWorkspaceModel(modelId: string, shipId: string, position: Vector3, orientationDeg: number): Model?
+	if not ShipModels then
+		warn("[ShipController] ReplicatedStorage.ShipModels not found")
+		return nil
+	end
+	local template = ShipModels:FindFirstChild(modelId)
+	if not template then
+		warn("[ShipController] No template in ShipModels for:", modelId)
+		return nil
+	end
+
+	local model = template:Clone()
+	model.Name = "Ship_" .. shipId
+
+	if model.PrimaryPart then
+		model:SetPrimaryPartCFrame(
+			CFrame.new(position) * CFrame.Angles(0, math.rad(orientationDeg), 0)
+		)
+	end
+
+	model.Parent = workspace
+	return model
 end
 
+-- ─── Cosmetic tilt (TiltPart child, not PrimaryPart) ─────────────────────────
+-- We tilt a dedicated cosmetic child rather than PrimaryPart to avoid fighting
+-- the server's CFrame replication on PrimaryPart.
+
 local rollTween = nil
+
+local function getTiltPart(): BasePart?
+	if not localShipModel then return nil end
+	return localShipModel:FindFirstChild("TiltPart", true)
+end
+
 local function updateShipTilt()
 	local tiltPart = getTiltPart()
 	if not tiltPart then return end
 
-	local targetRollDeg = rudder * 8   -- max ±8° visual tilt
+	local targetRollDeg = rudder * 8   -- max ±8° visual lean
 	local cf = tiltPart.CFrame
-	-- Preserve position and yaw; only adjust roll
 	local _, y, _ = cf:ToEulerAnglesYXZ()
 	local goalCF = CFrame.new(cf.Position)
 		* CFrame.Angles(0, y, 0)
@@ -61,8 +104,8 @@ end
 -- ─── Wake particles & engine sound ──────────────────────────────────────────
 
 local function updateWake()
-	if not shipModel then return end
-	local wakePart = shipModel:FindFirstChild("WakePart", true)
+	if not localShipModel then return end
+	local wakePart = localShipModel:FindFirstChild("WakePart", true)
 	if not wakePart then return end
 	for _, emitter in ipairs(wakePart:GetChildren()) do
 		if emitter:IsA("ParticleEmitter") then
@@ -72,8 +115,8 @@ local function updateWake()
 end
 
 local function updateEngineSound()
-	if not shipModel then return end
-	local snd = shipModel:FindFirstChild("EngineSound", true)
+	if not localShipModel then return end
+	local snd = localShipModel:FindFirstChild("EngineSound", true)
 	if snd and snd:IsA("Sound") then
 		snd.Volume = math.abs(throttle) * 0.8 + 0.1
 	end
@@ -119,6 +162,86 @@ local function setupCrosshair()
 	end)
 end
 
+-- ─── Ship lifecycle ───────────────────────────────────────────────────────────
+
+local function onShipSpawned(data: any)
+	if type(data) ~= "table" then return end
+
+	local shipId  = data.ShipId
+	local ownerId = data.OwnerId
+
+	-- Clone the workspace model for this ship (all players, not just local)
+	local model = spawnWorkspaceModel(
+		data.ModelId,
+		shipId,
+		data.Position or Vector3.zero,
+		data.Orientation or 0
+	)
+	if not model then return end
+
+	workspaceShips[shipId] = model
+
+	-- Track local player's ship for input + camera
+	if ownerId == LocalPlayer.UserId then
+		localShipId    = shipId
+		localShipModel = model
+		inputDisabled  = false
+		throttle       = 0
+		rudder         = 0
+		print("[ShipController] Local ship spawned:", shipId)
+	end
+end
+
+local function onShipDespawned(data: any)
+	if type(data) ~= "table" then return end
+
+	local shipId = data.ShipId
+	local model  = workspaceShips[shipId]
+	if model then
+		model:Destroy()
+		workspaceShips[shipId] = nil
+	end
+
+	if shipId == localShipId then
+		localShipId    = nil
+		localShipModel = nil
+		inputDisabled  = false
+	end
+end
+
+local function onShipDestroyed(data: any)
+	if type(data) ~= "table" then return end
+	-- Disable local input while the sink animation plays.
+	-- ShipSystem fires ShipDespawned (and cleans up the model) after 3 seconds.
+	if data.ShipId == localShipId then
+		inputDisabled = true
+		-- Zero out input so the server sees no movement during the sink
+		if ShipMoveInput and (throttle ~= 0 or rudder ~= 0) then
+			ShipMoveInput:FireServer({ forward = 0, turn = 0 })
+		end
+		throttle = 0
+		rudder   = 0
+	end
+end
+
+-- Called by ShipSystem every ~3 physics ticks (~15x/sec). Repositions all
+-- workspace ship models to match authoritative server state.
+local function onShipStateUpdate(snapshot: any)
+	if type(snapshot) ~= "table" then return end
+
+	for _, state in ipairs(snapshot) do
+		local model = workspaceShips[state.ShipId]
+		if not model or not model.PrimaryPart then continue end
+
+		-- SetPrimaryPartCFrame positions the model; cosmetic TiltPart tilt
+		-- is applied separately in onHeartbeat and is NOT overridden here
+		-- because TiltPart is a child, not the PrimaryPart.
+		model:SetPrimaryPartCFrame(
+			CFrame.new(state.Position) * CFrame.Angles(0, math.rad(state.Orientation or 0), 0)
+		)
+	end
+end
+
 -- ─── Input loop ──────────────────────────────────────────────────────────────
 
 local KEYS = {
@@ -129,7 +252,7 @@ local KEYS = {
 }
 
 local function onHeartbeat(_dt)
-	if not shipModel then return end
+	if not localShipModel or inputDisabled then return end
 
 	local prevThrottle = throttle
 	local prevRudder   = rudder
@@ -142,7 +265,6 @@ local function onHeartbeat(_dt)
 	if UserInputService:IsKeyDown(KEYS.right)   then rudder   =  1 end
 
 	if throttle ~= prevThrottle or rudder ~= prevRudder then
-		-- Nil-guard: ShipMoveInput may not exist if Remotes haven't loaded yet
 		if ShipMoveInput then
 			ShipMoveInput:FireServer({ forward = throttle, turn = rudder })
 		end
@@ -155,30 +277,29 @@ end
 
 -- ─── Weapon input ────────────────────────────────────────────────────────────
 
-local function getAimDirection()
-	if not shipModel or not shipModel.PrimaryPart then
+local function getAimDirection(): Vector3
+	if not localShipModel or not localShipModel.PrimaryPart then
 		return Vector3.new(0, 0, -1)
 	end
-	local origin = shipModel.PrimaryPart.Position
+	local origin = localShipModel.PrimaryPart.Position
 	local target = Mouse.Hit.Position
 	return (target - origin).Unit
 end
 
-local function onInputBegan(input, gameProcessed)
+local function onInputBegan(input: InputObject, gameProcessed: boolean)
 	if gameProcessed then return end
-	if not shipModel then return end
+	if not localShipModel or inputDisabled then return end
 
 	if input.UserInputType == Enum.UserInputType.MouseButton1 then
 		if FireWeapon then
-			FireWeapon:FireServer("primary", shipModel.PrimaryPart.Position, getAimDirection())
+			FireWeapon:FireServer("primary", localShipModel.PrimaryPart.Position, getAimDirection())
 		end
 
 	elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
-		-- UseAbility may be added later by CombatSystem (#89)
 		if UseAbility then
 			UseAbility:FireServer(getAimDirection())
 		else
-			-- Try a fresh lookup in case it was added after init
+			-- Retry lookup — UseAbility may have been added after init
 			UseAbility = Remotes and Remotes:FindFirstChild("UseAbility")
 			if UseAbility then
 				UseAbility:FireServer(getAimDirection())
@@ -191,19 +312,20 @@ end
 
 local ShipController = {}
 
--- Called by the client bootstrap when the local player's ship model is ready.
-function ShipController.setShip(model)
-	shipModel = model
-	print("[ShipController] Ship model set:", model.Name)
-end
-
 function ShipController.init()
 	setupCrosshair()
 
+	-- Ship lifecycle — listen to server broadcasts from ShipSystem (#88)
+	if ShipSpawnedRE   then ShipSpawnedRE.OnClientEvent:Connect(onShipSpawned)     end
+	if ShipDespawnedRE then ShipDespawnedRE.OnClientEvent:Connect(onShipDespawned) end
+	if ShipDestroyedRE then ShipDestroyedRE.OnClientEvent:Connect(onShipDestroyed) end
+	if ShipStateRE     then ShipStateRE.OnClientEvent:Connect(onShipStateUpdate)   end
+
+	-- Input
 	RunService.Heartbeat:Connect(onHeartbeat)
 	UserInputService.InputBegan:Connect(onInputBegan)
 
-	print("[ShipController] Initialized — WASD + mouse aiming active.")
+	print("[ShipController] Initialized — waiting for ShipSpawned events.")
 end
 
 return ShipController
