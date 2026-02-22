@@ -1,0 +1,5 @@
+std = "roblox"
+# multiple_statements is common idiomatic Roblox Luau (single-line if/guard patterns)
+# and is intentionally suppressed project-wide.
+[rules]
+multiple_statements = "allow"
