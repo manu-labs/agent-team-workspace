@@ -1,7 +1,9 @@
 -- VictoryDefeatScreen.luau
--- Full-screen end-of-round overlay triggered by GameStateChanged (newState == 'Victory' or 'Defeat').
--- Also supports optional RoundEnded event for detailed stats if GameManager fires it.
--- PlayAgain button fires the PlayAgain RemoteEvent to the server.
+-- Full-screen end-of-round overlay.
+-- Primary trigger: GameStateChanged (newState == 'Victory' or 'Defeat') — shows screen with placeholder stats.
+-- Stats populated: RoundEnded fires with full stats payload shortly after state change.
+-- Hidden: GameStateChanged newState == 'Lobby' (new round starting).
+-- PlayAgain button fires PlayAgain RemoteEvent.
 
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -9,9 +11,10 @@ local TweenService      = game:GetService("TweenService")
 
 local LocalPlayer = Players.LocalPlayer
 
+-- All three are in REMOTE_NAMES so WaitForChild is appropriate
 local Remotes               = ReplicatedStorage:WaitForChild("Remotes", 10)
 local GameStateChangedEvent = Remotes and Remotes:WaitForChild("GameStateChanged", 10)
-local RoundEndedEvent       = Remotes and Remotes:FindFirstChild("RoundEnded")  -- optional; not all builds fire it
+local RoundEndedEvent       = Remotes and Remotes:WaitForChild("RoundEnded", 10)
 local PlayAgainEvent        = Remotes and Remotes:WaitForChild("PlayAgain", 10)
 
 local COLOR = {
@@ -56,7 +59,7 @@ local function statRow(parent, label, value, order)
 	val.Parent             = row
 	Instance.new("UITextSizeConstraint", val).MaxTextSize = 18
 
-	return val  -- return value label so callers can update text
+	return val
 end
 
 local function buildGui()
@@ -90,10 +93,10 @@ local function buildGui()
 	Instance.new("UIStroke", contentPanel).Color = Color3.fromRGB(60, 90, 140)
 
 	local contentLayout = Instance.new("UIListLayout")
-	contentLayout.FillDirection        = Enum.FillDirection.Vertical
-	contentLayout.HorizontalAlignment  = Enum.HorizontalAlignment.Center
-	contentLayout.Padding              = UDim.new(0, 10)
-	contentLayout.Parent               = contentPanel
+	contentLayout.FillDirection       = Enum.FillDirection.Vertical
+	contentLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	contentLayout.Padding             = UDim.new(0, 10)
+	contentLayout.Parent              = contentPanel
 
 	local pad = Instance.new("UIPadding")
 	pad.PaddingTop    = UDim.new(0, 24)
@@ -114,19 +117,19 @@ local function buildGui()
 	Instance.new("UITextSizeConstraint", titleLabel).MaxTextSize = 46
 
 	local divider1 = Instance.new("Frame")
-	divider1.Size              = UDim2.new(0.9, 0, 0, 2)
-	divider1.BackgroundColor3  = Color3.fromRGB(60, 90, 140)
+	divider1.Size             = UDim2.new(0.9, 0, 0, 2)
+	divider1.BackgroundColor3 = Color3.fromRGB(60, 90, 140)
 	divider1.BackgroundTransparency = 0.3
-	divider1.BorderSizePixel   = 0
-	divider1.LayoutOrder       = 2
-	divider1.Parent            = contentPanel
+	divider1.BorderSizePixel  = 0
+	divider1.LayoutOrder      = 2
+	divider1.Parent           = contentPanel
 
-	-- Personal stats section
+	-- Personal stats
 	local statsSection = Instance.new("Frame")
-	statsSection.Size              = UDim2.new(1, 0, 0, 160)
+	statsSection.Size               = UDim2.new(1, 0, 0, 160)
 	statsSection.BackgroundTransparency = 1
-	statsSection.LayoutOrder       = 3
-	statsSection.Parent            = contentPanel
+	statsSection.LayoutOrder        = 3
+	statsSection.Parent             = contentPanel
 
 	local statsLayout = Instance.new("UIListLayout")
 	statsLayout.FillDirection = Enum.FillDirection.Vertical
@@ -134,30 +137,31 @@ local function buildGui()
 	statsLayout.Parent        = statsSection
 
 	local statsHeader = Instance.new("TextLabel")
-	statsHeader.Size           = UDim2.new(1, 0, 0, 24)
+	statsHeader.Size            = UDim2.new(1, 0, 0, 24)
 	statsHeader.BackgroundTransparency = 1
-	statsHeader.Text           = "Your Performance"
-	statsHeader.TextColor3     = Color3.fromRGB(140, 180, 220)
-	statsHeader.TextScaled     = true
-	statsHeader.Font           = Enum.Font.GothamBold
-	statsHeader.TextXAlignment = Enum.TextXAlignment.Left
-	statsHeader.LayoutOrder    = 0
-	statsHeader.Parent         = statsSection
+	statsHeader.Text            = "Your Performance"
+	statsHeader.TextColor3      = Color3.fromRGB(140, 180, 220)
+	statsHeader.TextScaled      = true
+	statsHeader.Font            = Enum.Font.GothamBold
+	statsHeader.TextXAlignment  = Enum.TextXAlignment.Left
+	statsHeader.LayoutOrder     = 0
+	statsHeader.Parent          = statsSection
 	Instance.new("UITextSizeConstraint", statsHeader).MaxTextSize = 16
 
-	local killsVal    = statRow(statsSection, "Kills",               0, 1)
-	local deathsVal   = statRow(statsSection, "Deaths",              0, 2)
-	local capVal      = statRow(statsSection, "Territories Captured", 0, 3)
-	local scoreVal    = statRow(statsSection, "Score",               0, 4)
+	local killsVal  = statRow(statsSection, "Kills",               0, 1)
+	local deathsVal = statRow(statsSection, "Deaths",              0, 2)
+	local capVal    = statRow(statsSection, "Territories Captured", 0, 3)
+	local scoreVal  = statRow(statsSection, "Score",               0, 4)
 
 	local divider2 = Instance.new("Frame")
-	divider2.Size              = UDim2.new(0.9, 0, 0, 2)
-	divider2.BackgroundColor3  = Color3.fromRGB(60, 90, 140)
+	divider2.Size             = UDim2.new(0.9, 0, 0, 2)
+	divider2.BackgroundColor3 = Color3.fromRGB(60, 90, 140)
 	divider2.BackgroundTransparency = 0.3
-	divider2.BorderSizePixel   = 0
-	divider2.LayoutOrder       = 4
-	divider2.Parent            = contentPanel
+	divider2.BorderSizePixel  = 0
+	divider2.LayoutOrder      = 4
+	divider2.Parent           = contentPanel
 
+	-- Team summary
 	local teamSection = Instance.new("Frame")
 	teamSection.Size               = UDim2.new(1, 0, 0, 70)
 	teamSection.BackgroundTransparency = 1
@@ -184,7 +188,6 @@ local function buildGui()
 	local zonesVal  = statRow(teamSection, "Zones Captured", "—", 1)
 	local lossesVal = statRow(teamSection, "Fleet Losses",   "—", 2)
 
-	-- Play Again button
 	local playAgainBtn = Instance.new("TextButton")
 	playAgainBtn.Name              = "PlayAgainButton"
 	playAgainBtn.Size              = UDim2.new(0.55, 0, 0, 50)
@@ -209,8 +212,8 @@ local function buildGui()
 		if PlayAgainEvent then PlayAgainEvent:FireServer() end
 	end)
 
-	-- Helper: populate stats and animate the panel in
-	local function showResult(result, stats)
+	-- Populate stats table from payload
+	local function applyStats(stats)
 		stats = stats or {}
 		killsVal.Text   = tostring(stats.kills    or 0)
 		deathsVal.Text  = tostring(stats.deaths   or 0)
@@ -218,7 +221,9 @@ local function buildGui()
 		scoreVal.Text   = tostring(stats.score    or 0)
 		zonesVal.Text   = (stats.zonesCaptured or 0) .. "/" .. (stats.zonesTotal or 0)
 		lossesVal.Text  = tostring(stats.fleetLosses or 0) .. " ships"
+	end
 
+	local function showResult(result)
 		if result == "Victory" or result == "victory" then
 			titleLabel.Text       = "GREENLAND CONQUERED"
 			titleLabel.TextColor3 = COLOR.victoryTitle
@@ -226,8 +231,6 @@ local function buildGui()
 			titleLabel.Text       = "MISSION FAILED"
 			titleLabel.TextColor3 = COLOR.defeatTitle
 		end
-
-		-- Pop-in animation: shrink then grow with Back easing
 		contentPanel.Size = UDim2.fromScale(0.05, 0.05)
 		screenGui.Enabled = true
 		TweenService:Create(contentPanel,
@@ -235,22 +238,23 @@ local function buildGui()
 			{ Size = UDim2.fromScale(0.50, 0.72) }):Play()
 	end
 
-	-- Primary: GameStateChanged fires Victory or Defeat state
+	-- GameStateChanged: show on Victory/Defeat, hide on Lobby (new round)
 	if GameStateChangedEvent then
 		GameStateChangedEvent.OnClientEvent:Connect(function(newState, _oldState)
 			if newState == "Victory" or newState == "Defeat" then
-				showResult(newState, nil)  -- stats populated by RoundEnded if available
+				showResult(newState)
+				applyStats(nil)  -- placeholder zeros until RoundEnded fires
 			elseif newState == "Lobby" then
-				-- New round starting — hide screen
 				screenGui.Enabled = false
 			end
 		end)
 	end
 
-	-- Optional: RoundEnded fires with detailed stats to populate the table
+	-- RoundEnded: fills in real stats (fires shortly after GameStateChanged)
 	if RoundEndedEvent then
 		RoundEndedEvent.OnClientEvent:Connect(function(result, stats)
-			showResult(result, stats)
+			showResult(result)
+			applyStats(stats)
 		end)
 	end
 end
