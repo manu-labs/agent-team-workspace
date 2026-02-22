@@ -78,11 +78,14 @@ local REMOTE_NAMES = {
 	"KillFeedEvent",        -- (message: string)
 
 	-- Server -> Client: Territory and score (fired by TerritorySystem)
-	"TerritoryUpdate",      -- (zones: table)
+	"TerritoryUpdate",      -- (zones: table) full zone snapshot for minimap
+	"ZoneCaptured",         -- (data: table) zone ownership changed
 	"ScoreUpdate",          -- (userId: number, score: number)
 
 	-- Server -> Client: Hazards (fired by HazardSystem)
-	"HazardUpdate",         -- (hazards: table)
+	"HazardUpdate",         -- (hazards: table) iceberg + storm positions
+	"StormEntered",         -- (data: table) per-player: ship entered a storm (fog VFX)
+	"StormExited",          -- (data: table) per-player: ship left a storm
 
 	-- Client -> Server
 	"PlayerSelectShip",     -- (shipType: string)
