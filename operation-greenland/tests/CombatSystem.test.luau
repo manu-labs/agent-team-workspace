@@ -14,17 +14,16 @@ local HIT_RADIUS = 15 -- studs for direct hit
 -- Weapon stats from ShipConfig (Destroyer as baseline)
 local DESTROYER_WEAPON = {
 	Damage = 75,
-	ProjectileSpeed = 300,
-	Range = 800,
-	FireRate = 0.8, -- shots/sec → cooldown = 1.25s
+	ProjectileSpeed = 250, -- ShipConfig Destroyer.Weapon.ProjectileSpeed
+	Range = 400, -- ShipConfig Destroyer.Weapon.Range
+	FireRate = 1.0, -- shots/sec → cooldown = 1.0s
 }
 
+-- AircraftCarrier SpecialWeapon (DroneStrike) — no ProjectileSpeed, AoE only
 local AIRCRAFT_CARRIER_SPECIAL = {
-	Damage = 120,
-	ProjectileSpeed = 200,
-	Range = 600,
-	Cooldown = 8,
-	AreaRadius = 80, -- AoE splash
+	Damage = 400, -- ShipConfig AircraftCarrier.SpecialWeapon.Damage
+	Cooldown = 30, -- ShipConfig AircraftCarrier.SpecialWeapon.Cooldown
+	AreaRadius = 80, -- ShipConfig AircraftCarrier.SpecialWeapon.AreaRadius
 }
 
 -- ─── Projectile helpers (mirror CombatSystem._createProjectile / tick logic) ──
@@ -161,7 +160,7 @@ end)
 
 Assert.test("Destroyer weapon lifetime equals Range ÷ ProjectileSpeed", function()
 	local expectedLifetime = DESTROYER_WEAPON.Range / DESTROYER_WEAPON.ProjectileSpeed
-	Assert.close(expectedLifetime, 800 / 300, 0.001)
+	Assert.close(expectedLifetime, 400 / 250, 0.001) -- ShipConfig: Range=400, Speed=250 → 1.6s
 end)
 
 -- ─── Hit detection ────────────────────────────────────────────────────────────
@@ -223,22 +222,23 @@ end)
 
 -- ─── Weapon stats / cooldowns ────────────────────────────────────────────────
 
-Assert.test("Destroyer fire rate 0.8 gives cooldown of 1.25s", function()
+Assert.test("Destroyer fire rate 1.0 gives cooldown of 1.0s", function()
 	local cd = cooldownFromFireRate(DESTROYER_WEAPON.FireRate)
-	Assert.close(cd, 1.25)
+	Assert.close(cd, 1.0)
 end)
 
 Assert.test("weapon damage read from ShipConfig is correct", function()
 	Assert.equal(DESTROYER_WEAPON.Damage, 75)
-	Assert.equal(AIRCRAFT_CARRIER_SPECIAL.Damage, 120)
+	Assert.equal(AIRCRAFT_CARRIER_SPECIAL.Damage, 400) -- ShipConfig AircraftCarrier.SpecialWeapon.Damage
 end)
 
 Assert.test("AircraftCarrier special has correct AoE radius", function()
 	Assert.equal(AIRCRAFT_CARRIER_SPECIAL.AreaRadius, 80)
 end)
 
-Assert.test("AircraftCarrier special has 8-second cooldown", function()
-	Assert.equal(AIRCRAFT_CARRIER_SPECIAL.Cooldown, 8)
+Assert.test("AircraftCarrier special has 30-second cooldown", function()
+	Assert.equal(AIRCRAFT_CARRIER_SPECIAL.Cooldown, 30) -- ShipConfig AircraftCarrier.SpecialWeapon.Cooldown
 end)
 
 Assert.summary("CombatSystem")
+
