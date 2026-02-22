@@ -357,12 +357,12 @@ local function setupLighting()
 	end
 
 	local atmosphere = Instance.new("Atmosphere")
-	atmosphere.Density = 0.3
-	atmosphere.Offset = 0.25
+	atmosphere.Density = 0.08  -- reduced from 0.3; previous value made the game a foggy cloud
+	atmosphere.Offset = 0.6    -- increased from 0.25 for better horizon clarity
 	atmosphere.Color = Color3.fromRGB(200, 215, 230)
 	atmosphere.Decay = Color3.fromRGB(180, 200, 220)
-	atmosphere.Glare = 0.1
-	atmosphere.Haze = 2
+	atmosphere.Glare = 0.05    -- reduced from 0.1
+	atmosphere.Haze = 0.5      -- reduced from 2; keeps arctic feel without obscuring visibility
 	atmosphere.Parent = Lighting
 end
 
