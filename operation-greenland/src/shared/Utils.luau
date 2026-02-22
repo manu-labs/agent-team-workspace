@@ -47,15 +47,11 @@ end
 
 --- Deep copy a table up to 2 levels deep (sufficient for config/state tables).
 --- Does not handle metatables or circular references.
-function Utils.DeepCopy(original: {[any]: any}): {[any]: any}
+function Utils.DeepCopy(original: { [any]: any }): { [any]: any }
 	local copy = {}
 	for key, value in pairs(original) do
 		if type(value) == "table" then
-			local inner = {}
-			for k2, v2 in pairs(value) do
-				inner[k2] = v2
-			end
-			copy[key] = inner
+			copy[key] = table.clone(value)
 		else
 			copy[key] = value
 		end
@@ -64,7 +60,7 @@ function Utils.DeepCopy(original: {[any]: any}): {[any]: any}
 end
 
 --- Shallow-merge 'source' into a copy of 'dest'. Source keys overwrite dest keys.
-function Utils.Merge(dest: {[any]: any}, source: {[any]: any}): {[any]: any}
+function Utils.Merge(dest: { [any]: any }, source: { [any]: any }): { [any]: any }
 	local result = Utils.DeepCopy(dest)
 	for key, value in pairs(source) do
 		result[key] = value
