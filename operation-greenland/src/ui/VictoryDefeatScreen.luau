@@ -1,8 +1,9 @@
 -- VictoryDefeatScreen.luau
 -- Full-screen end-of-round overlay.
--- Primary trigger: GameStateChanged (newState == 'Victory' or 'Defeat') — shows screen with placeholder stats.
--- Stats populated: RoundEnded fires with full stats payload shortly after state change.
--- Hidden: GameStateChanged newState == 'Lobby' (new round starting).
+-- Primary trigger: GameStateChanged (newState == 'Victory' or 'Defeat').
+-- Stats populated by RoundEnded, which sends an ARRAY of all players' stats.
+-- We find the local player's entry by matching userId.
+-- Hidden on GameStateChanged newState == 'Lobby'.
 -- PlayAgain button fires PlayAgain RemoteEvent.
 
 local Players           = game:GetService("Players")
@@ -11,7 +12,6 @@ local TweenService      = game:GetService("TweenService")
 
 local LocalPlayer = Players.LocalPlayer
 
--- All three are in REMOTE_NAMES so WaitForChild is appropriate
 local Remotes               = ReplicatedStorage:WaitForChild("Remotes", 10)
 local GameStateChangedEvent = Remotes and Remotes:WaitForChild("GameStateChanged", 10)
 local RoundEndedEvent       = Remotes and Remotes:WaitForChild("RoundEnded", 10)
@@ -116,15 +116,14 @@ local function buildGui()
 	titleLabel.Parent          = contentPanel
 	Instance.new("UITextSizeConstraint", titleLabel).MaxTextSize = 46
 
-	local divider1 = Instance.new("Frame")
-	divider1.Size             = UDim2.new(0.9, 0, 0, 2)
-	divider1.BackgroundColor3 = Color3.fromRGB(60, 90, 140)
-	divider1.BackgroundTransparency = 0.3
-	divider1.BorderSizePixel  = 0
-	divider1.LayoutOrder      = 2
-	divider1.Parent           = contentPanel
+	local div1 = Instance.new("Frame")
+	div1.Size             = UDim2.new(0.9, 0, 0, 2)
+	div1.BackgroundColor3 = Color3.fromRGB(60, 90, 140)
+	div1.BackgroundTransparency = 0.3
+	div1.BorderSizePixel  = 0
+	div1.LayoutOrder      = 2
+	div1.Parent           = contentPanel
 
-	-- Personal stats
 	local statsSection = Instance.new("Frame")
 	statsSection.Size               = UDim2.new(1, 0, 0, 160)
 	statsSection.BackgroundTransparency = 1
@@ -148,20 +147,19 @@ local function buildGui()
 	statsHeader.Parent          = statsSection
 	Instance.new("UITextSizeConstraint", statsHeader).MaxTextSize = 16
 
-	local killsVal  = statRow(statsSection, "Kills",               0, 1)
-	local deathsVal = statRow(statsSection, "Deaths",              0, 2)
-	local capVal    = statRow(statsSection, "Territories Captured", 0, 3)
-	local scoreVal  = statRow(statsSection, "Score",               0, 4)
+	local killsVal  = statRow(statsSection, "Kills",               "—", 1)
+	local deathsVal = statRow(statsSection, "Deaths",              "—", 2)
+	local capVal    = statRow(statsSection, "Territories Captured", "—", 3)
+	local scoreVal  = statRow(statsSection, "Score",               "—", 4)
 
-	local divider2 = Instance.new("Frame")
-	divider2.Size             = UDim2.new(0.9, 0, 0, 2)
-	divider2.BackgroundColor3 = Color3.fromRGB(60, 90, 140)
-	divider2.BackgroundTransparency = 0.3
-	divider2.BorderSizePixel  = 0
-	divider2.LayoutOrder      = 4
-	divider2.Parent           = contentPanel
+	local div2 = Instance.new("Frame")
+	div2.Size             = UDim2.new(0.9, 0, 0, 2)
+	div2.BackgroundColor3 = Color3.fromRGB(60, 90, 140)
+	div2.BackgroundTransparency = 0.3
+	div2.BorderSizePixel  = 0
+	div2.LayoutOrder      = 4
+	div2.Parent           = contentPanel
 
-	-- Team summary
 	local teamSection = Instance.new("Frame")
 	teamSection.Size               = UDim2.new(1, 0, 0, 70)
 	teamSection.BackgroundTransparency = 1
@@ -212,15 +210,14 @@ local function buildGui()
 		if PlayAgainEvent then PlayAgainEvent:FireServer() end
 	end)
 
-	-- Populate stats table from payload
-	local function applyStats(stats)
-		stats = stats or {}
-		killsVal.Text   = tostring(stats.kills    or 0)
-		deathsVal.Text  = tostring(stats.deaths   or 0)
-		capVal.Text     = tostring(stats.captures or 0)
-		scoreVal.Text   = tostring(stats.score    or 0)
-		zonesVal.Text   = (stats.zonesCaptured or 0) .. "/" .. (stats.zonesTotal or 0)
-		lossesVal.Text  = tostring(stats.fleetLosses or 0) .. " ships"
+	-- Populate stat labels from a single player's stats entry
+	local function applyStats(myStats)
+		killsVal.Text   = tostring(myStats.kills    or 0)
+		deathsVal.Text  = tostring(myStats.deaths   or 0)
+		capVal.Text     = tostring(myStats.captures or 0)
+		scoreVal.Text   = tostring(myStats.score    or 0)
+		zonesVal.Text   = (myStats.zonesCaptured or 0) .. "/" .. (myStats.zonesTotal or 0)
+		lossesVal.Text  = tostring(myStats.fleetLosses or 0) .. " ships"
 	end
 
 	local function showResult(result)
@@ -238,23 +235,32 @@ local function buildGui()
 			{ Size = UDim2.fromScale(0.50, 0.72) }):Play()
 	end
 
-	-- GameStateChanged: show on Victory/Defeat, hide on Lobby (new round)
+	-- GameStateChanged: show screen on Victory/Defeat (stats come from RoundEnded below)
+	-- Hide on Lobby (new round starting).
 	if GameStateChangedEvent then
 		GameStateChangedEvent.OnClientEvent:Connect(function(newState, _oldState)
 			if newState == "Victory" or newState == "Defeat" then
 				showResult(newState)
-				applyStats(nil)  -- placeholder zeros until RoundEnded fires
+				-- Stats display left at "—" until RoundEnded fires with real data
 			elseif newState == "Lobby" then
 				screenGui.Enabled = false
 			end
 		end)
 	end
 
-	-- RoundEnded: fills in real stats (fires shortly after GameStateChanged)
+	-- RoundEnded sends an ARRAY of all players' stats.
+	-- Iterate to find the local player's entry by userId.
 	if RoundEndedEvent then
-		RoundEndedEvent.OnClientEvent:Connect(function(result, stats)
+		RoundEndedEvent.OnClientEvent:Connect(function(result, allStats)
 			showResult(result)
-			applyStats(stats)
+			local myStats = {}
+			for _, entry in ipairs(allStats) do
+				if entry.userId == LocalPlayer.UserId then
+					myStats = entry
+					break
+				end
+			end
+			applyStats(myStats)
 		end)
 	end
 end
