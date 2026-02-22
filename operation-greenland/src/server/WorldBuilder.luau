@@ -342,6 +342,7 @@ local function buildSpawnDocks(worldFolder: Folder)
 	spawnLocation.Transparency = 1 -- invisible; dock platform provides the visual
 	spawnLocation.CanCollide = false
 	spawnLocation.Duration = 0 -- no team colour glow
+	spawnLocation.Enabled = false -- suppress default spawn UI
 	spawnLocation.Parent = docksFolder
 end
 
