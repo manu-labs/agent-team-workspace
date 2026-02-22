@@ -1,7 +1,8 @@
 -- Minimap.luau
 -- Top-right minimap widget: ship positions, territory zones, north indicator.
+-- Visible during Sailing and Combat phases; hidden otherwise.
 -- Ships payload from MinimapUpdated: {{userId: number, x: number, z: number}}
--- Zones payload from TerritoryUpdate: {{id: string, status: string, position: {x,z}}}
+-- Zones payload from TerritoryUpdate: {{id: string, status: string, position: {x, z}}}
 
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -11,6 +12,7 @@ local LocalPlayer = Players.LocalPlayer
 local Remotes               = ReplicatedStorage:WaitForChild("Remotes", 10)
 local TerritoryUpdateEvent  = Remotes and Remotes:WaitForChild("TerritoryUpdate", 10)
 local MinimapUpdatedEvent   = Remotes and Remotes:WaitForChild("MinimapUpdated", 10)
+local GameStateChangedEvent = Remotes and Remotes:WaitForChild("GameStateChanged", 10)
 
 -- ─── Config ──────────────────────────────────────────────────────────────────
 -- TODO: import MAP_BOUNDS from GameConfig (#86) once merged.
@@ -24,8 +26,11 @@ local ZONE_COLORS = {
 	neutral   = Color3.fromRGB(100, 100, 100),
 }
 
+-- Phases during which the minimap should be visible
+local SHOW_STATES = { Sailing = true, Combat = true }
+
 -- ─── Coord mapping ───────────────────────────────────────────────────────────
--- Accepts world X/Z (as separate numbers) and returns a UDim2 scale position.
+
 local function worldToMinimap(wx, wz)
 	local nx = (wx - MAP_BOUNDS.min.X) / (MAP_BOUNDS.max.X - MAP_BOUNDS.min.X)
 	local nz = (wz - MAP_BOUNDS.min.Y) / (MAP_BOUNDS.max.Y - MAP_BOUNDS.min.Y)
@@ -42,6 +47,7 @@ local function buildGui()
 	screenGui.ResetOnSpawn    = false
 	screenGui.IgnoreGuiInset  = true
 	screenGui.DisplayOrder    = 4
+	screenGui.Enabled         = false  -- hidden until correct game phase
 	screenGui.Parent          = playerGui
 
 	local container = Instance.new("Frame")
@@ -76,6 +82,7 @@ local function buildGui()
 	greenland.ZIndex            = 2
 	greenland.Parent            = container
 	Instance.new("UICorner", greenland).CornerRadius = UDim.new(0, 6)
+
 	local glLbl = Instance.new("TextLabel")
 	glLbl.Size              = UDim2.fromScale(1, 1)
 	glLbl.BackgroundTransparency = 1
@@ -97,7 +104,6 @@ local function buildGui()
 
 	if TerritoryUpdateEvent then
 		TerritoryUpdateEvent.OnClientEvent:Connect(function(zones)
-			-- Remove stale zone frames
 			for id, frame in pairs(zoneFrames) do
 				local found = false
 				for _, z in ipairs(zones) do if z.id == id then found = true; break end end
@@ -115,7 +121,8 @@ local function buildGui()
 					Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 3)
 					zoneFrames[zone.id] = frame
 				end
-				local px, pz = zone.position.x or zone.position.X, zone.position.z or zone.position.Z
+				local px = zone.position.x or zone.position.X
+				local pz = zone.position.z or zone.position.Z
 				frame.Position      = worldToMinimap(px, pz)
 				frame.BackgroundColor3 = ZONE_COLORS[zone.status] or ZONE_COLORS.neutral
 			end
@@ -142,14 +149,14 @@ local function buildGui()
 				dot.BorderSizePixel = 0
 				dot.ZIndex          = shipsContainer.ZIndex
 				if isPlayer then
-					dot.Size            = UDim2.fromOffset(10, 10)
+					dot.Size             = UDim2.fromOffset(10, 10)
 					dot.BackgroundColor3 = Color3.new(1, 1, 1)
 					local ps = Instance.new("UIStroke")
 					ps.Color     = Color3.fromRGB(100, 200, 255)
 					ps.Thickness = 2
 					ps.Parent    = dot
 				else
-					dot.Size            = UDim2.fromOffset(6, 6)
+					dot.Size             = UDim2.fromOffset(6, 6)
 					dot.BackgroundColor3 = Color3.fromRGB(80, 140, 255)
 				end
 				Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
@@ -172,6 +179,13 @@ local function buildGui()
 	northLabel.ZIndex           = 5
 	northLabel.Parent           = container
 	Instance.new("UITextSizeConstraint", northLabel).MaxTextSize = 14
+
+	-- Show/hide based on game phase
+	if GameStateChangedEvent then
+		GameStateChangedEvent.OnClientEvent:Connect(function(newState, _oldState)
+			screenGui.Enabled = SHOW_STATES[newState] == true
+		end)
+	end
 end
 
 local Minimap = {}
