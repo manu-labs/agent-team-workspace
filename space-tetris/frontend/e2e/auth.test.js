@@ -116,9 +116,7 @@ test.describe("Auth state — nav and logout", () => {
     await page.getByRole("button", { name: /login|sign in/i }).click();
     await expect(page).toHaveURL("/", { timeout: 10000 });
 
-    await expect(
-      page.getByText(username).or(page.getByRole("button", { name: /logout|sign out/i }))
-    ).toBeVisible();
+    await expect(page.getByRole("button", { name: /logout|sign out/i })).toBeVisible();
   });
 
   test("can logout and nav returns to guest state", async ({ page }) => {
