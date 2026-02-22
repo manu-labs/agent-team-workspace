@@ -108,7 +108,11 @@ local function buildOcean()
 	local centerZ = (MAP_MIN_Z + MAP_MAX_Z) / 2
 	local waterDepth = 50
 
-	terrain:FillBlock(CFrame.new(centerX, -waterDepth / 2, centerZ), Vector3.new(sizeX, waterDepth, sizeZ), Enum.Material.Water)
+	terrain:FillBlock(
+		CFrame.new(centerX, -waterDepth / 2, centerZ),
+		Vector3.new(sizeX, waterDepth, sizeZ),
+		Enum.Material.Water
+	)
 end
 
 -- ─── Greenland Landmass ───────────────────────────────────────────────────────
@@ -326,6 +330,19 @@ local function buildSpawnDocks(worldFolder: Folder)
 		Color = Color3.fromRGB(120, 75, 35),
 		Parent = docksFolder,
 	})
+
+	-- Safety SpawnLocation at dock surface. CharacterAutoLoads = false prevents
+	-- normal character spawning, but this fallback ensures that if LoadCharacter()
+	-- is ever called accidentally, the character lands here rather than in the sky.
+	local spawnLocation = Instance.new("SpawnLocation")
+	spawnLocation.Name = "DockSpawn"
+	spawnLocation.Position = Vector3.new(0, 2, -7500)
+	spawnLocation.Size = Vector3.new(6, 1, 6)
+	spawnLocation.Anchored = true
+	spawnLocation.Transparency = 1 -- invisible; dock platform provides the visual
+	spawnLocation.CanCollide = false
+	spawnLocation.Duration = 0 -- no team colour glow
+	spawnLocation.Parent = docksFolder
 end
 
 -- ─── Lighting ─────────────────────────────────────────────────────────────────
