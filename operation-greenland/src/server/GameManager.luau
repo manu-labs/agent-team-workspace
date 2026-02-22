@@ -51,21 +51,26 @@ local VALID_SHIP_TYPES = {
 	SupplyShip = true,
 }
 
---- Names of all RemoteEvents the game uses.
---- Grouped by direction and system.
+--- All RemoteEvents the game uses, created in a single Remotes folder.
+--- Every system (ShipSystem, CombatSystem, etc.) should look up remotes
+--- from this folder via GameManager.GetRemotes() rather than creating
+--- their own. This keeps the contract in one place for the frontend.
 local REMOTE_NAMES = {
-	-- Server -> Client: Game phase and timing
-	"SetGamePhase",         -- (phaseName: string)
+	-- Server -> Client: Game phase and timing (fired by GameManager)
+	"GameStateChanged",     -- (newState: string, oldState: string)
 	"GameTimerUpdated",     -- (secondsRemaining: number)
 	"ReadyCountUpdated",    -- (readyCount: number, totalPlayers: number)
 	"RoundEnded",           -- (result: string, stats: table)
 
 	-- Server -> Client: Ship and player state (fired by ShipSystem)
-	"ShipSpawned",          -- (userId: number, shipType: string, position: Vector3)
-	"ShipDestroyed",        -- (userId: number, killerUserId: number?)
+	"ShipSpawned",          -- (data: table) new ship entered the world
+	"ShipDestroyed",        -- (data: table) ship sunk, trigger client animation
+	"ShipDespawned",        -- (data: table) ship removed from world
+	"ShipStateUpdate",      -- (snapshot: table) bulk position/health snapshot
 	"HealthUpdated",        -- (currentHP: number, maxHP: number) per-player
 	"SpeedUpdated",         -- (throttlePercent: number) per-player
 	"MinimapUpdated",       -- (ships: {{userId, x, z}}) broadcast
+	"HealAuraActive",       -- (data: table) supply ship heal pulse for VFX
 
 	-- Server -> Client: Combat (fired by CombatSystem)
 	"DamageDealt",          -- (eventType: string, data: table)
@@ -73,8 +78,8 @@ local REMOTE_NAMES = {
 	"KillFeedEvent",        -- (message: string)
 
 	-- Server -> Client: Territory and score (fired by TerritorySystem)
-	"TerritoryUpdated",     -- (zones: table)
-	"ScoreboardUpdated",    -- (players: table)
+	"TerritoryUpdate",      -- (zones: table)
+	"ScoreUpdate",          -- (userId: number, score: number)
 
 	-- Server -> Client: Hazards (fired by HazardSystem)
 	"HazardUpdate",         -- (hazards: table)
@@ -82,6 +87,7 @@ local REMOTE_NAMES = {
 	-- Client -> Server
 	"PlayerSelectShip",     -- (shipType: string)
 	"PlayerReady",          -- ()
+	"ShipMoveInput",        -- (inputData: {forward: number, turn: number})
 	"FireWeapon",           -- (weaponId: string, origin: Vector3, direction: Vector3)
 	"PlayAgain",            -- ()
 }
@@ -137,7 +143,6 @@ function GameManager.OnPlayerAdded(player: Player)
 		isReady = false,
 		score = 0,
 	}
-	-- If in lobby, broadcast updated ready count
 	if currentState == "Lobby" then
 		GameManager._BroadcastReadyCount()
 	end
@@ -145,7 +150,6 @@ end
 
 function GameManager.OnPlayerRemoving(player: Player)
 	playerDataMap[player.UserId] = nil
-	-- Update ready count after player leaves
 	if currentState == "Lobby" then
 		GameManager._BroadcastReadyCount()
 	end
@@ -218,7 +222,7 @@ function GameManager.TransitionTo(newState: GameState)
 	print(("[GameManager] %s -> %s"):format(oldState, newState))
 
 	-- Notify all clients of phase change
-	broadcastToAll("SetGamePhase", newState)
+	broadcastToAll("GameStateChanged", newState, oldState)
 
 	-- State entry logic
 	if newState == "Lobby" then
@@ -299,7 +303,7 @@ function GameManager.Update(dt: number)
 		GameManager._UpdateEndScreen(dt)
 	end
 
-	-- Periodic timer broadcast (every TIMER_BROADCAST_INTERVAL seconds)
+	-- Periodic timer broadcast
 	timerBroadcastAccum += dt
 	if timerBroadcastAccum >= TIMER_BROADCAST_INTERVAL then
 		timerBroadcastAccum -= TIMER_BROADCAST_INTERVAL
@@ -378,13 +382,7 @@ function GameManager.AddScore(player: Player, amount: number)
 	local data = playerDataMap[player.UserId]
 	if data then
 		data.score += amount
-		-- ScoreboardUpdated with full player table will be sent by
-		-- TerritorySystem at its own tick rate. Individual score changes
-		-- also trigger a targeted update.
-		fireToPlayer("ScoreboardUpdated", player, { {
-			userId = player.UserId,
-			score = data.score,
-		} })
+		broadcastToAll("ScoreUpdate", player.UserId, data.score)
 	end
 end
 
