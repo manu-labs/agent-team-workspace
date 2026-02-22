@@ -12,7 +12,7 @@ local Vector3 = require("./mocks/Vector3")
 local CAPTURE_RATE_PER_SHIP = 10 -- progress points per ship per second
 local CAPTURE_DECAY_RATE = 5 -- points lost per second when zone is empty
 local CAPTURE_MAX_PROGRESS = 100
-local SCORE_PER_ZONE_PER_SECOND = 2
+local SCORE_PER_ZONE_PER_SECOND = 1 -- GameConfig.SCORE_PER_ZONE_PER_SECOND
 
 -- ─── Pure logic helpers (mirror TerritorySystem.tick capture block) ───────────
 
@@ -154,7 +154,7 @@ Assert.test("score accumulates correctly per zone per second", function()
 	for _ = 1, 10 do -- 10 seconds, 3 zones owned
 		score += SCORE_PER_ZONE_PER_SECOND * 3 * 1
 	end
-	Assert.close(score, 60)
+	Assert.close(score, 30) -- 1 pt/zone/s × 3 zones × 10s
 end)
 
 -- ─── IsInZone geometry tests ──────────────────────────────────────────────────
@@ -190,3 +190,4 @@ Assert.test("ship exactly on radius boundary is in zone", function()
 end)
 
 Assert.summary("TerritorySystem")
+
