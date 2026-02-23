@@ -12,6 +12,10 @@ const STATUS_CONFIG: Record<RSVPStatus, { label: string; className: string }> = 
     label: "Event Full",
     className: "bg-zinc-500/10 text-zinc-400",
   },
+  manual_required: {
+    label: "Manual RSVP",
+    className: "bg-amber-500/10 text-amber-400",
+  },
   skipped: { label: "Skipped", className: "bg-zinc-500/10 text-zinc-500" },
 };
 
