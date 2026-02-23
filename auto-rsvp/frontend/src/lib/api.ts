@@ -21,7 +21,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     ...options,
   });
 
-  if (\!res.ok) {
+  if (!res.ok) {
     const body = await res.text();
     throw new ApiError(body || res.statusText, res.status);
   }
