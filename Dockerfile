@@ -1,3 +1,13 @@
+# Stage 1 — Build Next.js frontend static export
+FROM node:20-alpine AS frontend-builder
+WORKDIR /frontend
+COPY auto-rsvp/frontend/package*.json ./
+RUN npm ci
+COPY auto-rsvp/frontend/ .
+ARG NEXT_PUBLIC_API_URL=https://auto-rsvp-production.up.railway.app
+RUN npm run build
+
+# Stage 2 — Backend + serve frontend static files
 FROM python:3.12-slim
 
 # Install system deps + PostgreSQL
@@ -20,6 +30,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy backend code
 COPY auto-rsvp/backend/ .
+
+# Copy frontend static files from builder stage
+COPY --from=frontend-builder /frontend/out /app/static/frontend
 
 # Copy startup script
 COPY start.sh /start.sh
