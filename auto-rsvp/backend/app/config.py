@@ -8,6 +8,11 @@ class Settings(BaseSettings):
     EVENTBRITE_API_KEY: str = ""
     LUMA_API_KEY: str = ""
 
+    # Job runner settings
+    JOB_INTERVAL_HOURS: int = 6
+    RSVP_DELAY_SECONDS: float = 5.0
+    RSVP_MAX_RETRIES: int = 3
+
     model_config = {"env_file": ".env"}
 
 
