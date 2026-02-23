@@ -23,7 +23,7 @@ export async function createTestUser(
         "Tech startups, AI panels, music showcases, happy hours with founders",
     },
   });
-  if (\!res.ok()) {
+  if (res.ok() === false) {
     throw new Error(
       `createTestUser failed: ${res.status()} ${await res.text()}`
     );
