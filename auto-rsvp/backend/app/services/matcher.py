@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 THRESHOLD_AUTO_RSVP = 0.7  # >= 0.7: auto-RSVP
 THRESHOLD_RECOMMEND = 0.4  # 0.4-0.7: recommend to user
 BATCH_SIZE = 20  # events per API call
-GROQ_MODEL = "llama-3.1-8b-instant"
+GROQ_MODEL = "llama-3.3-70b-versatile"
 
 _SYSTEM_PROMPT = """You are an event matching assistant. Given a user's interests and a list of events, score each event's relevance to the user from 0.0 (not relevant at all) to 1.0 (perfect match).
 
@@ -152,3 +152,4 @@ async def match_events_for_user(user_id: UUID, db: AsyncSession) -> list[dict]:
 
     await db.commit()
     return sorted(results, key=lambda r: r["score"], reverse=True)
+
