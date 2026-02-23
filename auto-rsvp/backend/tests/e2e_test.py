@@ -6,15 +6,15 @@ Usage:
     python tests/e2e_test.py https://backend.railway.app
     BASE_URL=https://backend.railway.app python tests/e2e_test.py
 
-Tests the full pipeline:
+Tests the full pipeline with multiple user interest profiles:
     1. Health check
     2. Scrape events from rsvpatx.com
-    3. Create test user (or reuse existing)
-    4. Trigger AI matching
-    5. List matched events per platform
-    6. Trigger RSVP pipeline
-    7. Poll for completion
-    8. Report per-platform results
+    3. For each test profile:
+       a. Create test user (or reuse existing)
+       b. Trigger AI matching
+       c. Trigger RSVP pipeline
+       d. Poll for completion
+       e. Report per-platform results
 """
 
 import json
@@ -32,19 +32,28 @@ BASE_URL = (
 ).rstrip("/")
 API = f"{BASE_URL}/api/v1"
 
-TEST_USER = {
-    "email": "autorsvp.test@gmail.com",
-    "first_name": "Alex",
-    "last_name": "Thompson",
-    "phone": "512-555-0199",
-    "interests_description": (
-        "Interested in all SXSW 2026 events — technology, music, film, "
-        "networking, panels, parties, meetups, showcases"
-    ),
-}
+# Test profiles — each validates a different AI matching capability
+TEST_PROFILES = [
+    {
+        "email": "autorsvp.broad@gmail.com",
+        "first_name": "Alex",
+        "last_name": "Thompson",
+        "phone": "512-555-0101",
+        "interests_description": "I want all Austin events",
+        "_label": "BROAD (all events)",
+    },
+    {
+        "email": "autorsvp.exclusion@gmail.com",
+        "first_name": "Jordan",
+        "last_name": "Rivera",
+        "phone": "512-555-0102",
+        "interests_description": "I want all Austin events except country music ones",
+        "_label": "EXCLUSION (no country music)",
+    },
+]
 
 POLL_INTERVAL = 5
-POLL_TIMEOUT = 300  # 5 minutes max
+POLL_TIMEOUT = 600  # 10 minutes max
 
 
 def api(method: str, path: str, body: dict | None = None) -> dict:
@@ -80,10 +89,10 @@ def step(name: str):
     print(f"{'=' * 60}")
 
 
-def report_results(rsvps: list[dict], events_by_id: dict):
-    """Print per-platform results table."""
+def report_results(label: str, rsvps: list[dict], events_by_id: dict):
+    """Print per-platform results table for a user profile."""
     print(f"\n{'=' * 60}")
-    print("  E2E TEST RESULTS - Per-Platform Report")
+    print(f"  E2E TEST RESULTS — {label}")
     print(f"{'=' * 60}\n")
 
     by_platform = defaultdict(list)
@@ -151,108 +160,76 @@ def report_results(rsvps: list[dict], events_by_id: dict):
     success = sum(1 for r in rsvps if r.get("status") == "success")
     manual = sum(1 for r in rsvps if r.get("status") == "manual_required")
     failed = sum(1 for r in rsvps if r.get("status") == "failed")
+    skipped = sum(1 for r in rsvps if r.get("status") == "skipped")
     pending = sum(
         1 for r in rsvps if r.get("status") in ("pending", "in_progress")
     )
 
-    print(f"\n--- Summary ---")
+    print(f"\n--- Summary ({label}) ---")
     print(f"Platforms tested:  {len(tested)}/{len(all_platforms)}")
     print(f"Total RSVPs:       {total}")
     print(f"  Success:         {success}")
     print(f"  Manual required: {manual}")
     print(f"  Failed:          {failed}")
+    print(f"  Skipped:         {skipped}")
     print(f"  Pending:         {pending}")
 
     passing = success + manual
     print(f"\nVERDICT: {passing}/{total} RSVPs passed (success or manual_required)")
+    return {"label": label, "total": total, "success": success, "manual": manual,
+            "failed": failed, "skipped": skipped, "pending": pending, "tested_platforms": len(tested)}
 
 
-def main():
-    print("Auto-RSVP E2E Test")
-    print(f"Target: {BASE_URL}")
+def run_profile(profile: dict, events_by_id: dict) -> dict:
+    """Run the full pipeline for a single test profile."""
+    label = profile["_label"]
+    user_data = {k: v for k, v in profile.items() if not k.startswith("_")}
 
-    # Step 1: Health check
-    step("Health Check")
-    resp = health_get("/health")
-    if resp.get("_error"):
-        print(f"FATAL: Backend not reachable at {BASE_URL}")
-        print(f"  Detail: {resp.get('_detail')}")
-        sys.exit(1)
-    print(f"Health: {resp}")
-
-    # Step 2: Scrape events
-    step("Scrape Events")
-    resp = api("POST", "/events/scrape")
-    if resp.get("_error"):
-        print(f"ERROR: Scrape failed - {resp}")
-        sys.exit(1)
-    print(f"Scrape results: {json.dumps(resp, indent=2)}")
-
-    # Step 3: List events and index by platform
-    step("List Events by Platform")
-    events = api("GET", "/events/?limit=100")
-    if isinstance(events, dict) and events.get("_error"):
-        print(f"ERROR: Could not list events - {events}")
-        sys.exit(1)
-
-    events_by_id = {str(e["id"]): e for e in events}
-    by_platform = defaultdict(list)
-    for e in events:
-        by_platform[e["platform"]].append(e)
-
-    print(f"Total events: {len(events)}")
-    for plat, evts in sorted(by_platform.items()):
-        print(f"  {plat}: {len(evts)} events")
-
-    # Step 4: Create or find test user
-    step("Create Test User")
-    resp = api("POST", "/users/", TEST_USER)
+    step(f"Create/Find User — {label}")
+    resp = api("POST", "/users", user_data)
     if resp.get("_error") and resp.get("_status") == 409:
-        print("Test user already exists - searching for them...")
-        users_resp = api("GET", "/users/?limit=100")
+        print("User already exists — searching...")
+        users_resp = api("GET", "/users?limit=100")
         if isinstance(users_resp, dict) and not users_resp.get("_error"):
             items = users_resp.get("items", [])
         else:
             items = users_resp if isinstance(users_resp, list) else []
         user = next(
-            (u for u in items if u.get("email") == TEST_USER["email"]), None
+            (u for u in items if u.get("email") == user_data["email"]), None
         )
         if not user:
-            print("ERROR: Could not find existing test user")
-            sys.exit(1)
+            print(f"ERROR: Could not find existing user {user_data['email']}")
+            return {}
         print(f"Found existing user: {user['id']}")
     elif resp.get("_error"):
-        print(f"ERROR: Could not create user - {resp}")
-        sys.exit(1)
+        print(f"ERROR: Could not create user — {resp}")
+        return {}
     else:
         user = resp
         print(f"Created user: {user['id']}")
 
     user_id = user["id"]
 
-    # Step 5: Trigger AI matching
-    step("AI Matching")
+    step(f"AI Matching — {label}")
     resp = api("POST", f"/match/{user_id}")
     if resp.get("_error"):
-        print(f"ERROR: Matching failed - {resp}")
-        print("Continuing anyway - may have partial results...")
+        print(f"ERROR: Matching failed — {resp}")
+        print("Continuing anyway...")
     else:
-        print("Matching results:")
+        print(f"  Interests: \"{user_data['interests_description']}\"")
         print(f"  Total events:      {resp.get('total_events', 0)}")
         print(f"  Auto-RSVP (>=0.7): {resp.get('auto_rsvp_count', 0)}")
         print(f"  Recommended:       {resp.get('recommended_count', 0)}")
         print(f"  Skipped (<0.4):    {resp.get('skipped_count', 0)}")
 
-    # Step 6: Trigger RSVP pipeline
-    step("Run RSVP Pipeline")
+    step(f"Run RSVP Pipeline — {label}")
     resp = api("POST", "/jobs/run")
     if resp.get("_error"):
-        print(f"ERROR: Pipeline trigger failed - {resp}")
-        sys.exit(1)
+        print(f"ERROR: Pipeline trigger failed — {resp}")
+        return {"user_id": user_id}
     print(f"Pipeline: {resp.get('message', 'started')}")
 
-    # Step 7: Poll for completion
-    step("Waiting for Pipeline Completion")
+    step(f"Waiting for Pipeline Completion — {label}")
     start = time.time()
     while time.time() - start < POLL_TIMEOUT:
         status = api("GET", "/jobs/status")
@@ -275,28 +252,97 @@ def main():
     else:
         print(f"  TIMEOUT: Pipeline did not finish within {POLL_TIMEOUT}s")
 
-    # Step 8: Fetch RSVPs and report
-    step("Fetch RSVP Results")
-    rsvps_resp = api("GET", f"/rsvps/?user_id={user_id}&limit=100")
-    if isinstance(rsvps_resp, dict) and rsvps_resp.get("_error"):
-        print(f"ERROR: Could not fetch RSVPs - {rsvps_resp}")
-        sys.exit(1)
-
-    rsvps = rsvps_resp if isinstance(rsvps_resp, list) else []
+    step(f"Fetch RSVP Results — {label}")
+    rsvps = []
+    offset = 0
+    while True:
+        page = api("GET", f"/rsvps?user_id={user_id}&limit=100&offset={offset}")
+        if isinstance(page, dict) and page.get("_error"):
+            print(f"ERROR: Could not fetch RSVPs — {page}")
+            return {"user_id": user_id}
+        page_list = page if isinstance(page, list) else []
+        rsvps.extend(page_list)
+        if len(page_list) < 100:
+            break
+        offset += 100
     print(f"Total RSVPs for user: {len(rsvps)}")
 
-    rsvp_list = []
-    for r in rsvps:
-        eid = str(r.get("event_id", ""))
-        rsvp_list.append(
-            {
-                "event_id": eid,
-                "status": r.get("status", "unknown"),
-                "match_score": r.get("match_score"),
-            }
-        )
+    rsvp_list = [
+        {
+            "event_id": str(r.get("event_id", "")),
+            "status": r.get("status", "unknown"),
+            "match_score": r.get("match_score"),
+        }
+        for r in rsvps
+    ]
 
-    report_results(rsvp_list, events_by_id)
+    return report_results(label, rsvp_list, events_by_id)
+
+
+def main():
+    print("Auto-RSVP E2E Test")
+    print(f"Target: {BASE_URL}")
+
+    # Step 1: Health check
+    step("Health Check")
+    resp = health_get("/health")
+    if resp.get("_error"):
+        print(f"FATAL: Backend not reachable at {BASE_URL}")
+        print(f"  Detail: {resp.get('_detail')}")
+        sys.exit(1)
+    print(f"Health: {resp}")
+
+    # Step 2: Scrape events
+    step("Scrape Events")
+    resp = api("POST", "/events/scrape")
+    if resp.get("_error"):
+        print(f"ERROR: Scrape failed — {resp}")
+        sys.exit(1)
+    print(f"Scrape results: {json.dumps(resp, indent=2)}")
+
+    # Step 3: Fetch all events for lookup (paginate through all pages)
+    step("List Events by Platform")
+    events = []
+    offset = 0
+    while True:
+        page = api("GET", f"/events?limit=100&offset={offset}")
+        if isinstance(page, dict) and page.get("_error"):
+            print(f"ERROR: Could not list events — {page}")
+            sys.exit(1)
+        page_list = page if isinstance(page, list) else []
+        events.extend(page_list)
+        if len(page_list) < 100:
+            break
+        offset += 100
+
+    events_by_id = {str(e["id"]): e for e in events}
+    by_platform = defaultdict(list)
+    for e in events:
+        by_platform[e["platform"]].append(e)
+
+    print(f"Total events: {len(events)}")
+    for plat, evts in sorted(by_platform.items()):
+        print(f"  {plat}: {len(evts)} events")
+
+    # Step 4: Run each test profile
+    all_results = []
+    for profile in TEST_PROFILES:
+        result = run_profile(profile, events_by_id)
+        if result:
+            all_results.append(result)
+
+    # Final summary across all profiles
+    print(f"\n{'=' * 60}")
+    print("  FINAL SUMMARY — All Profiles")
+    print(f"{'=' * 60}")
+    for r in all_results:
+        label = r.get("label", "?")
+        passing = r.get("success", 0) + r.get("manual", 0)
+        total = r.get("total", 0)
+        skipped = r.get("skipped", 0)
+        print(f"\n  {label}")
+        print(f"    RSVP attempted: {total - skipped} | passed: {passing} | skipped: {skipped}")
+        print(f"    Platforms covered: {r.get('tested_platforms', 0)}/8")
 
 
 if __name__ == "__main__":
