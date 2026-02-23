@@ -24,6 +24,7 @@ export type RSVPStatus =
   | "success"
   | "failed"
   | "already_full"
+  | "manual_required"
   | "skipped";
 
 export interface RSVP {
