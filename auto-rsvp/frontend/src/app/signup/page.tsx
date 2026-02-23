@@ -249,6 +249,7 @@ export default function SignupPage() {
               id="interests_description"
               name="interests_description"
               rows={5}
+              maxLength={500}
               value={form.interests_description}
               onChange={handleChange}
               disabled={loading}
@@ -271,14 +272,14 @@ export default function SignupPage() {
               </div>
               <p
                 className={`text-xs ${
-                  interestsLength < 10 && interestsLength > 0
+                  interestsLength >= 450
                     ? "text-yellow-400"
-                    : interestsLength >= 10
-                      ? "text-zinc-500"
+                    : interestsLength < 10 && interestsLength > 0
+                      ? "text-yellow-400"
                       : "text-zinc-600"
                 }`}
               >
-                {interestsLength} / 10 min
+                {interestsLength} / 500
               </p>
             </div>
           </div>
@@ -301,7 +302,7 @@ export default function SignupPage() {
             disabled={loading}
             className="w-full rounded-md bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-zinc-950 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {loading ? "Signing you up..." : "Start Auto-RSVPing →"}
+            {loading ? "Signing you up..." : "Start Auto-RSVPing \u2192"}
           </button>
         </section>
       </form>
