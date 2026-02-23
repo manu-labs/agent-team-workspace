@@ -15,6 +15,7 @@ class RSVPStatus(str, enum.Enum):
     failed = "failed"
     already_full = "already_full"
     skipped = "skipped"
+    manual_required = "manual_required"
 
 
 def _utcnow() -> datetime:
