@@ -1,6 +1,6 @@
-"""AI-powered event matching — scores events against user preferences using Claude.
+"""AI-powered event matching — scores events against user preferences using Groq.
 
-Batches events into groups, sends them to the Claude API along with the user's
+Batches events into groups, sends them to the Groq API along with the user's
 interests description, and parses structured match scores back. Results are
 persisted to the RSVP table for downstream processing.
 """
@@ -10,7 +10,7 @@ import logging
 from datetime import datetime, timezone
 from uuid import UUID
 
-import anthropic
+from groq import AsyncGroq
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,7 +24,8 @@ logger = logging.getLogger(__name__)
 # Thresholds for match scores
 THRESHOLD_AUTO_RSVP = 0.7  # >= 0.7: auto-RSVP
 THRESHOLD_RECOMMEND = 0.4  # 0.4-0.7: recommend to user
-BATCH_SIZE = 20  # events per Claude API call
+BATCH_SIZE = 20  # events per API call
+GROQ_MODEL = "llama-3.1-8b-instant"
 
 _SYSTEM_PROMPT = """You are an event matching assistant. Given a user's interests and a list of events, score each event's relevance to the user from 0.0 (not relevant at all) to 1.0 (perfect match).
 
@@ -45,19 +46,21 @@ def _build_user_prompt(interests: str, events: list[dict]) -> str:
     return "\n".join(lines)
 
 
-async def _call_claude(interests: str, event_batch: list[dict]) -> list[dict]:
-    """Call Claude API and return parsed match scores."""
-    client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+async def _call_groq(interests: str, event_batch: list[dict]) -> list[dict]:
+    """Call Groq API and return parsed match scores."""
+    client = AsyncGroq(api_key=settings.GROQ_API_KEY)
     user_prompt = _build_user_prompt(interests, event_batch)
 
     try:
-        message = await client.messages.create(
-            model="claude-sonnet-4-20250514",
+        response = await client.chat.completions.create(
+            model=GROQ_MODEL,
             max_tokens=1024,
-            system=_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": user_prompt}],
+            messages=[
+                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
         )
-        text = message.content[0].text.strip()
+        text = response.choices[0].message.content.strip()
 
         # Strip markdown code fences if present
         if text.startswith("```"):
@@ -67,8 +70,8 @@ async def _call_claude(interests: str, event_batch: list[dict]) -> list[dict]:
             text = text.strip()
 
         return json.loads(text)
-    except (json.JSONDecodeError, anthropic.APIError, IndexError, KeyError) as exc:
-        logger.error("Claude matching failed: %s", exc)
+    except (json.JSONDecodeError, IndexError, KeyError, Exception) as exc:
+        logger.error("Groq matching failed: %s", exc)
         return []
 
 
@@ -91,13 +94,13 @@ async def match_events_for_user(user_id: UUID, db: AsyncSession) -> list[dict]:
     if not events:
         return []
 
-    # Batch events and call Claude
+    # Batch events and call Groq
     event_dicts = [{"id": str(e.id), "title": e.title, "date": e.date} for e in events]
     all_scores: list[dict] = []
 
     for i in range(0, len(event_dicts), BATCH_SIZE):
         batch = event_dicts[i : i + BATCH_SIZE]
-        scores = await _call_claude(user.interests_description, batch)
+        scores = await _call_groq(user.interests_description, batch)
         all_scores.extend(scores)
 
     # Build lookup for quick access
