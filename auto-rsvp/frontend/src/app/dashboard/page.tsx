@@ -164,7 +164,7 @@ export default function DashboardPage() {
 
   const userId =
     typeof window !== "undefined"
-      ? localStorage.getItem("userId")
+      ? localStorage.getItem("user_id")
       : null;
 
   const fetchRSVPs = useCallback(async () => {
