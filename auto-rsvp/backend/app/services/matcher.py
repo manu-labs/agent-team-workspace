@@ -53,7 +53,7 @@ async def _call_groq(interests: str, event_batch: list[dict]) -> list[dict]:
 
     payload = {
         "model": GROQ_MODEL,
-        "max_tokens": 1024,
+        "max_tokens": 4096,
         "messages": [
             {"role": "system", "content": _SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
@@ -161,3 +161,4 @@ async def match_events_for_user(user_id: UUID, db: AsyncSession) -> list[dict]:
 
     await db.commit()
     return sorted(results, key=lambda r: r["score"], reverse=True)
+
