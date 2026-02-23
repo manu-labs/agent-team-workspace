@@ -11,7 +11,7 @@ from app.schemas.rsvp import RSVPResponse
 router = APIRouter(prefix="/rsvps", tags=["rsvps"])
 
 
-@router.get("/", response_model=list[RSVPResponse])
+@router.get("", response_model=list[RSVPResponse])
 async def list_rsvps(
     user_id: UUID | None = Query(None),
     skip: int = Query(0, ge=0),
