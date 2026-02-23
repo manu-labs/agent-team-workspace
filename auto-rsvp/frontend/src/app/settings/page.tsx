@@ -223,11 +223,12 @@ export default function SettingsPage() {
               value={form.interests_description}
               onChange={handleChange}
               disabled={saving || rematching}
+              maxLength={500}
               className="w-full resize-none rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
               placeholder="e.g., Tech startup networking events, AI panels, happy hours with founders"
             />
-            <p className={`mt-1 text-right text-xs ${interestsLength < 10 && interestsLength > 0 ? "text-yellow-400" : "text-zinc-600"}`}>
-              {interestsLength} / 10 min
+            <p className={`mt-1 text-right text-xs ${interestsLength >= 450 ? "text-yellow-400" : interestsLength < 10 && interestsLength > 0 ? "text-yellow-400" : "text-zinc-600"}`}>
+              {interestsLength} / 500
             </p>
           </div>
           <button
@@ -301,3 +302,4 @@ export default function SettingsPage() {
     </div>
   );
 }
+
