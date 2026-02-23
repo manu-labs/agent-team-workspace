@@ -189,7 +189,7 @@ def run_profile(profile: dict, events_by_id: dict) -> dict:
     resp = api("POST", "/users", user_data)
     if resp.get("_error") and resp.get("_status") == 409:
         print("User already exists — searching...")
-        users_resp = api("GET", "/users?limit=200")
+        users_resp = api("GET", "/users?limit=100")
         if isinstance(users_resp, dict) and not users_resp.get("_error"):
             items = users_resp.get("items", [])
         else:
@@ -253,12 +253,18 @@ def run_profile(profile: dict, events_by_id: dict) -> dict:
         print(f"  TIMEOUT: Pipeline did not finish within {POLL_TIMEOUT}s")
 
     step(f"Fetch RSVP Results — {label}")
-    rsvps_resp = api("GET", f"/rsvps?user_id={user_id}&limit=500")
-    if isinstance(rsvps_resp, dict) and rsvps_resp.get("_error"):
-        print(f"ERROR: Could not fetch RSVPs — {rsvps_resp}")
-        return {"user_id": user_id}
-
-    rsvps = rsvps_resp if isinstance(rsvps_resp, list) else []
+    rsvps = []
+    offset = 0
+    while True:
+        page = api("GET", f"/rsvps?user_id={user_id}&limit=100&offset={offset}")
+        if isinstance(page, dict) and page.get("_error"):
+            print(f"ERROR: Could not fetch RSVPs — {page}")
+            return {"user_id": user_id}
+        page_list = page if isinstance(page, list) else []
+        rsvps.extend(page_list)
+        if len(page_list) < 100:
+            break
+        offset += 100
     print(f"Total RSVPs for user: {len(rsvps)}")
 
     rsvp_list = [
@@ -294,12 +300,20 @@ def main():
         sys.exit(1)
     print(f"Scrape results: {json.dumps(resp, indent=2)}")
 
-    # Step 3: Fetch all events for lookup (increased limit)
+    # Step 3: Fetch all events for lookup (paginate through all pages)
     step("List Events by Platform")
-    events = api("GET", "/events?limit=500")
-    if isinstance(events, dict) and events.get("_error"):
-        print(f"ERROR: Could not list events — {events}")
-        sys.exit(1)
+    events = []
+    offset = 0
+    while True:
+        page = api("GET", f"/events?limit=100&offset={offset}")
+        if isinstance(page, dict) and page.get("_error"):
+            print(f"ERROR: Could not list events — {page}")
+            sys.exit(1)
+        page_list = page if isinstance(page, list) else []
+        events.extend(page_list)
+        if len(page_list) < 100:
+            break
+        offset += 100
 
     events_by_id = {str(e["id"]): e for e in events}
     by_platform = defaultdict(list)
