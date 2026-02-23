@@ -13,7 +13,7 @@ from app.schemas.user import UserCreate, UserListResponse, UserResponse, UserUpd
 router = APIRouter(prefix="/users", tags=["users"])
 
 
-@router.post("/", response_model=UserResponse, status_code=201)
+@router.post("", response_model=UserResponse, status_code=201)
 async def create_user(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
     """Create a new user (signup). Returns 409 if email is already registered."""
     user = User(**user_in.model_dump())
@@ -30,7 +30,7 @@ async def create_user(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
     return user
 
 
-@router.get("/", response_model=UserListResponse)
+@router.get("", response_model=UserListResponse)
 async def list_users(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
