@@ -10,7 +10,7 @@ import logging
 from datetime import datetime, timezone
 from uuid import UUID
 
-from groq import AsyncGroq
+import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,6 +26,7 @@ THRESHOLD_AUTO_RSVP = 0.7  # >= 0.7: auto-RSVP
 THRESHOLD_RECOMMEND = 0.4  # 0.4-0.7: recommend to user
 BATCH_SIZE = 20  # events per API call
 GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 _SYSTEM_PROMPT = """You are an event matching assistant. Given a user's interests and a list of events, score each event's relevance to the user from 0.0 (not relevant at all) to 1.0 (perfect match).
 
@@ -42,25 +43,33 @@ def _build_user_prompt(interests: str, events: list[dict]) -> str:
     lines = [f'User interests: "{interests}"', "", "Events to score:"]
     for e in events:
         date_str = e["date"].isoformat() if hasattr(e["date"], "isoformat") else str(e["date"])
-        lines.append(f'- [{e["id"]}] "{e["title"]}" — {date_str}')
+        lines.append(f'- [{e["id"]}] "{e["title"]}" \u2014 {date_str}')
     return "\n".join(lines)
 
 
 async def _call_groq(interests: str, event_batch: list[dict]) -> list[dict]:
-    """Call Groq API and return parsed match scores."""
-    client = AsyncGroq(api_key=settings.GROQ_API_KEY)
+    """Call Groq API via httpx and return parsed match scores."""
     user_prompt = _build_user_prompt(interests, event_batch)
 
+    payload = {
+        "model": GROQ_MODEL,
+        "max_tokens": 1024,
+        "messages": [
+            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
+    }
+    headers = {
+        "Authorization": f"Bearer {settings.GROQ_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
     try:
-        response = await client.chat.completions.create(
-            model=GROQ_MODEL,
-            max_tokens=1024,
-            messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt},
-            ],
-        )
-        text = response.choices[0].message.content.strip()
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(GROQ_API_URL, json=payload, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+            text = data["choices"][0]["message"]["content"].strip()
 
         # Strip markdown code fences if present
         if text.startswith("```"):
@@ -70,7 +79,7 @@ async def _call_groq(interests: str, event_batch: list[dict]) -> list[dict]:
             text = text.strip()
 
         return json.loads(text)
-    except (json.JSONDecodeError, IndexError, KeyError, Exception) as exc:
+    except (json.JSONDecodeError, httpx.HTTPError, KeyError, IndexError) as exc:
         logger.error("Groq matching failed: %s", exc)
         return []
 
@@ -152,4 +161,3 @@ async def match_events_for_user(user_id: UUID, db: AsyncSession) -> list[dict]:
 
     await db.commit()
     return sorted(results, key=lambda r: r["score"], reverse=True)
-
