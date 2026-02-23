@@ -26,6 +26,7 @@ COPY start.sh /start.sh
 RUN chmod +x /start.sh
 
 # Environment
+ENV PYTHONPATH=/app
 ENV DATABASE_URL=postgresql+asyncpg://postgres:autorsvp2026@127.0.0.1:5432/auto_rsvp
 ENV CORS_ORIGINS=["https://auto-rsvp.vercel.app","http://localhost:3000"]
 
