@@ -12,7 +12,10 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const url = `${API_BASE}/api/v1${path}`;
+  // Add trailing slash before query string to avoid Railway HTTP redirect (307 mixed-content block)
+  const [pathPart, query] = path.split("?");
+  const normalizedPath = pathPart.endsWith("/") ? pathPart : `${pathPart}/`;
+  const url = `${API_BASE}/api/v1${normalizedPath}${query ? `?${query}` : ""}`;
   const res = await fetch(url, {
     headers: {
       "Content-Type": "application/json",
@@ -100,3 +103,4 @@ export async function retryRSVP(rsvpId: string): Promise<RSVP> {
 export async function skipRSVP(rsvpId: string): Promise<RSVP> {
   return request<RSVP>(`/rsvps/${rsvpId}/skip`, { method: "POST" });
 }
+
