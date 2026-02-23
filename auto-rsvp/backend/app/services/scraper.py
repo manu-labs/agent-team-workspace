@@ -100,8 +100,8 @@ def _parse_events(html: str) -> list[dict]:
 
     # Find the main content block. Squarespace uses sqs-block-html; fall back to body.
     content = (
-        soup.find("div", class_=re.compile(r"sqs-block-html"))
-        or soup.find("main")
+        soup.find("main")
+        or soup.find("div", class_=re.compile(r"sqs-block-html"))
         or soup.body
         or soup
     )
@@ -202,3 +202,4 @@ async def scrape_and_upsert(db: AsyncSession) -> dict[str, int]:
         new_count, updated_count, error_count,
     )
     return {"found": len(raw_events), "new": new_count, "updated": updated_count, "errors": error_count}
+
