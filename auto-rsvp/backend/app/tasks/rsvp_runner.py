@@ -28,6 +28,9 @@ logger = logging.getLogger(__name__)
 _last_run: dict | None = None
 _running = False
 
+# Integration result statuses that should NOT be retried
+_NON_RETRYABLE = {"paid_event", "already_registered", "event_full", "manual_required"}
+
 
 def get_job_status() -> dict:
     """Return the current job runner status."""
@@ -53,7 +56,7 @@ async def run_pipeline() -> dict:
         "started_at": started_at.isoformat(),
         "scrape": {},
         "match": {},
-        "rsvp": {"attempted": 0, "success": 0, "failed": 0, "skipped": 0},
+        "rsvp": {"attempted": 0, "success": 0, "failed": 0, "skipped": 0, "manual": 0},
     }
 
     try:
@@ -127,6 +130,8 @@ async def _process_pending_rsvps(db: AsyncSession, rsvp_summary: dict) -> None:
             await _attempt_rsvp(rsvp, db)
             if rsvp.status == RSVPStatus.success:
                 rsvp_summary["success"] += 1
+            elif rsvp.status == RSVPStatus.manual_required:
+                rsvp_summary["manual"] += 1
             elif rsvp.status == RSVPStatus.skipped:
                 rsvp_summary["skipped"] += 1
             else:
@@ -157,16 +162,8 @@ async def _attempt_rsvp(rsvp: RSVP, db: AsyncSession) -> None:
         rsvp.attempted_at = datetime.now(timezone.utc)
         return
 
-    # Find the right integration
+    # Find the right integration (always returns a handler — generic fallback)
     integration = await get_integration(event.rsvp_url)
-    if not integration:
-        rsvp.status = RSVPStatus.skipped
-        rsvp.error_message = f"No integration available for platform: {event.platform.value}"
-        rsvp.attempted_at = datetime.now(timezone.utc)
-        logger.info(
-            "Skipping RSVP %s — no integration for %s", rsvp.id, event.platform.value
-        )
-        return
 
     # Mark as in_progress
     rsvp.status = RSVPStatus.in_progress
@@ -191,13 +188,9 @@ async def _attempt_rsvp(rsvp: RSVP, db: AsyncSession) -> None:
                 )
                 return
 
-            # Non-retryable failures
-            if result.status in ("paid_event", "already_registered", "event_full"):
-                rsvp.status = (
-                    RSVPStatus.already_full
-                    if result.status == "event_full"
-                    else RSVPStatus.failed
-                )
+            # Non-retryable failures — stop immediately
+            if result.status in _NON_RETRYABLE:
+                rsvp.status = _map_result_status(result.status)
                 rsvp.error_message = result.message
                 logger.info(
                     "RSVP non-retryable: user=%s event=%s status=%s",
@@ -225,3 +218,13 @@ async def _attempt_rsvp(rsvp: RSVP, db: AsyncSession) -> None:
         "RSVP failed after %d attempts: user=%s event=%s",
         settings.RSVP_MAX_RETRIES, user.email, event.title,
     )
+
+
+def _map_result_status(result_status: str) -> RSVPStatus:
+    """Map an integration RSVPResult.status string to a DB RSVPStatus enum."""
+    return {
+        "event_full": RSVPStatus.already_full,
+        "manual_required": RSVPStatus.manual_required,
+        "paid_event": RSVPStatus.failed,
+        "already_registered": RSVPStatus.failed,
+    }.get(result_status, RSVPStatus.failed)
