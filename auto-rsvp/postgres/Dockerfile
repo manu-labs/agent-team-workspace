@@ -1,0 +1,7 @@
+FROM postgres:16-alpine
+
+ENV POSTGRES_USER=postgres
+ENV POSTGRES_PASSWORD=autorsvp2026
+ENV POSTGRES_DB=auto_rsvp
+
+EXPOSE 5432
