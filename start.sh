@@ -1,6 +1,10 @@
 #!/bin/bash
 set -e
 
+# Environment variables
+export DATABASE_URL="postgresql+asyncpg://postgres:autorsvp2026@127.0.0.1:5432/auto_rsvp"
+export CORS_ORIGINS='["https://auto-rsvp.vercel.app","http://localhost:3000"]'
+
 PG_VERSION=$(ls /etc/postgresql/)
 echo "Starting PostgreSQL $PG_VERSION..."
 
@@ -17,7 +21,7 @@ for i in $(seq 1 30); do
   sleep 1
 done
 
-# Create database and set password (ignore errors if already exists)
+# Create database and set password
 su - postgres -c "psql -c \"ALTER USER postgres PASSWORD 'autorsvp2026';\"" 2>/dev/null || true
 su - postgres -c "createdb auto_rsvp" 2>/dev/null || true
 
