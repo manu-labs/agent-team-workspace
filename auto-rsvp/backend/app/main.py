@@ -8,6 +8,7 @@ app = FastAPI(
     title="Auto-RSVP",
     description="Automatic event discovery and RSVP for Austin events",
     version="0.1.0",
+    redirect_slashes=False,
 )
 
 app.add_middleware(
