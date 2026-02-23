@@ -9,18 +9,18 @@ test.describe("Home page", () => {
     await expect(page.getByText("Tell us what you're into")).toBeVisible();
   });
 
-  test("Get Started CTA links to /signup", async ({ page }) => {
+  test("Get Started CTA links to /signup/", async ({ page }) => {
     await page.goto("/");
     await expect(
       page.getByRole("link", { name: "Get Started" })
-    ).toHaveAttribute("href", "/signup");
+    ).toHaveAttribute("href", "/signup/");
   });
 
-  test("Browse Events CTA links to /events", async ({ page }) => {
+  test("Browse Events CTA links to /events/", async ({ page }) => {
     await page.goto("/");
     await expect(
       page.getByRole("link", { name: "Browse Events" })
-    ).toHaveAttribute("href", "/events");
+    ).toHaveAttribute("href", "/events/");
   });
 
   test("nav has expected links", async ({ page }) => {
