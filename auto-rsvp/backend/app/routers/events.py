@@ -22,7 +22,7 @@ async def trigger_scrape(db: AsyncSession = Depends(get_db)) -> dict[str, int]:
     return await scrape_and_upsert(db)
 
 
-@router.get("", response_model=list[EventResponse])
+@router.get("/", response_model=list[EventResponse])
 async def list_events(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
