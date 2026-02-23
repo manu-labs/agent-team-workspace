@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { getUser, updateUser, triggerMatch } from "@/lib/api";
+import { getUser, updateUser, deleteUser, triggerMatch } from "@/lib/api";
 import { ApiError } from "@/lib/api";
 import { User } from "@/lib/types";
 
@@ -12,6 +12,7 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [rematching, setRematching] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [saveMsg, setSaveMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
@@ -26,7 +27,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (!userId) {
-      setLoading(false);
+      router.replace("/signup");
       return;
     }
     getUser(userId)
@@ -43,7 +44,7 @@ export default function SettingsPage() {
         setSaveMsg({ type: "error", text: "Failed to load your profile." });
       })
       .finally(() => setLoading(false));
-  }, [userId]);
+  }, [userId, router]);
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) {
     const { name, value } = e.target;
@@ -55,14 +56,16 @@ export default function SettingsPage() {
     e.preventDefault();
     if (!userId) return;
 
-    const errors: string[] = [];
-    if (!form.first_name.trim()) errors.push("First name is required.");
-    if (!form.last_name.trim()) errors.push("Last name is required.");
-    if (!form.interests_description.trim() || form.interests_description.trim().length < 10) {
-      errors.push("Interests description must be at least 10 characters.");
+    if (!form.first_name.trim()) {
+      setSaveMsg({ type: "error", text: "First name is required." });
+      return;
     }
-    if (errors.length > 0) {
-      setSaveMsg({ type: "error", text: errors[0] });
+    if (!form.last_name.trim()) {
+      setSaveMsg({ type: "error", text: "Last name is required." });
+      return;
+    }
+    if (form.interests_description.trim().length < 10) {
+      setSaveMsg({ type: "error", text: "Interests description must be at least 10 characters." });
       return;
     }
 
@@ -100,28 +103,25 @@ export default function SettingsPage() {
     }
   }
 
-  function handleDeleteAccount() {
-    // Clear local state and redirect — backend delete endpoint not yet wired
+  async function handleDeleteAccount() {
+    if (!userId) return;
+    setDeleting(true);
+    try {
+      await deleteUser(userId);
+    } catch (err) {
+      // If already deleted or 404, still clear local state
+      if (!(err instanceof ApiError && err.status === 404)) {
+        setSaveMsg({ type: "error", text: "Failed to delete account. Please try again." });
+        setDeleting(false);
+        setShowDeleteConfirm(false);
+        return;
+      }
+    }
     localStorage.removeItem("user_id");
     router.push("/");
   }
 
   const interestsLength = form.interests_description.trim().length;
-
-  if (!userId) {
-    return (
-      <div className="mx-auto max-w-lg px-4 py-16 text-center">
-        <h1 className="text-2xl font-bold text-white">Settings</h1>
-        <p className="mt-4 text-zinc-400">Sign up first to access settings.</p>
-        <a
-          href="/signup"
-          className="mt-6 inline-block rounded-lg bg-white px-6 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-200"
-        >
-          Sign Up
-        </a>
-      </div>
-    );
-  }
 
   if (loading) {
     return (
@@ -267,7 +267,7 @@ export default function SettingsPage() {
           Danger Zone
         </h2>
         <p className="mb-4 text-sm text-zinc-400">
-          Deleting your account will sign you out and remove your local session. This cannot be undone.
+          Permanently deletes your account and all associated data. This cannot be undone.
         </p>
         {!showDeleteConfirm ? (
           <button
@@ -277,20 +277,24 @@ export default function SettingsPage() {
             Delete Account
           </button>
         ) : (
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-zinc-400">Are you sure?</span>
-            <button
-              onClick={handleDeleteAccount}
-              className="rounded-md bg-red-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-600"
-            >
-              Yes, delete
-            </button>
-            <button
-              onClick={() => setShowDeleteConfirm(false)}
-              className="rounded-md px-4 py-2 text-sm text-zinc-500 transition-colors hover:text-zinc-300"
-            >
-              Cancel
-            </button>
+          <div className="space-y-3">
+            <p className="text-sm font-medium text-white">Are you sure? This cannot be undone.</p>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleDeleteAccount}
+                disabled={deleting}
+                className="rounded-md bg-red-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-600 disabled:opacity-50"
+              >
+                {deleting ? "Deleting..." : "Yes, delete my account"}
+              </button>
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                disabled={deleting}
+                className="rounded-md px-4 py-2 text-sm text-zinc-500 transition-colors hover:text-zinc-300 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         )}
       </section>
