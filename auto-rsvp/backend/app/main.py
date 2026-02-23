@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import events, match, rsvps, users
+from app.routers import events, jobs, match, rsvps, users
 
 app = FastAPI(
     title="Auto-RSVP",
@@ -22,6 +22,7 @@ app.include_router(users.router, prefix="/api/v1")
 app.include_router(events.router, prefix="/api/v1")
 app.include_router(rsvps.router, prefix="/api/v1")
 app.include_router(match.router, prefix="/api/v1")
+app.include_router(jobs.router, prefix="/api/v1")
 
 
 @app.get("/health")
