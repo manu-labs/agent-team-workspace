@@ -66,18 +66,23 @@ test.describe("Events page", () => {
 
   test("date filter buttons toggle active state", async ({ page }) => {
     await page.goto("/events");
-    const mar7Btn = page.getByRole("button", { name: "Mar 7" });
-    await expect(mar7Btn).toBeVisible();
-    await mar7Btn.click();
-    await expect(mar7Btn).toHaveClass(/bg-zinc-600/);
+
+    // "All dates" is always present as the reset button
+    const allDatesBtn = page.getByRole("button", { name: "All dates" });
+    await expect(allDatesBtn).toBeVisible();
+
+    // Click the first specific date button (not "All dates") — avoid hardcoding a specific date
+    const specificDateBtn = page
+      .locator("button")
+      .filter({ hasText: /^[A-Z][a-z]+ \d+$/ })
+      .first();
+    await expect(specificDateBtn).toBeVisible();
+    await specificDateBtn.click();
+    await expect(specificDateBtn).toHaveClass(/bg-zinc-600/);
 
     // Reset to all dates
-    await page
-      .getByRole("button", { name: "All dates" })
-      .click();
-    await expect(
-      page.getByRole("button", { name: "All dates" })
-    ).toHaveClass(/bg-zinc-600/);
+    await allDatesBtn.click();
+    await expect(allDatesBtn).toHaveClass(/bg-zinc-600/);
   });
 
   test("Refresh Events button triggers scrape", async ({ page }) => {
