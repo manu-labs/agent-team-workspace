@@ -44,6 +44,28 @@ def _normalize(raw: dict) -> NormalizedMarket | None:
         yes_price = float(prices[0])
         no_price = float(prices[1])
 
+        # Validate outcomes field — ensure outcomePrices[0] corresponds to "Yes"
+        # The Gamma API returns outcomes as a JSON string: '["Yes", "No"]'
+        # If the first outcome is "No", swap prices so yes_price always = YES
+        outcomes_raw = raw.get("outcomes")
+        if outcomes_raw:
+            if isinstance(outcomes_raw, str):
+                try:
+                    outcomes = json.loads(outcomes_raw)
+                except json.JSONDecodeError:
+                    outcomes = []
+            elif isinstance(outcomes_raw, list):
+                outcomes = outcomes_raw
+            else:
+                outcomes = []
+
+            if len(outcomes) >= 2 and str(outcomes[0]).strip().lower() == "no":
+                logger.debug(
+                    "Polymarket %s: outcomes[0]='%s', swapping yes/no prices",
+                    market_id, outcomes[0],
+                )
+                yes_price, no_price = no_price, yes_price
+
         # Extract category from tags list
         tags = raw.get("tags") or []
         category = ""
@@ -66,8 +88,10 @@ def _normalize(raw: dict) -> NormalizedMarket | None:
             except (ValueError, AttributeError):
                 pass
 
-        # URL
-        slug = raw.get("slug") or ""
+        # URL — use event slug (not market slug) for correct Polymarket links
+        events = raw.get("events") or []
+        event_slug = events[0].get("slug", "") if events else ""
+        slug = event_slug or raw.get("slug") or ""
         url = f"https://polymarket.com/event/{slug}" if slug else ""
 
         return NormalizedMarket(
