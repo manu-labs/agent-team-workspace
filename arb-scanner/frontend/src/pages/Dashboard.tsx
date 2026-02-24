@@ -10,10 +10,9 @@ export default function Dashboard() {
             Live Opportunities
           </h1>
           <p className="mt-0.5 font-mono text-[10px] uppercase tracking-wider text-zinc-500">
-            Sorted by fee-adjusted spread &middot; Auto-refreshes every 60s
+            Sorted by fee-adjusted spread &middot; Auto-refreshes every 30s
           </p>
         </div>
-        {/* Placeholder filter/controls area */}
         <div className="flex items-center gap-2">
           <span className="relative flex h-2 w-2">
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-profit opacity-50" />
