@@ -10,7 +10,7 @@ export default function Dashboard() {
             Live Opportunities
           </h1>
           <p className="mt-0.5 font-mono text-[10px] uppercase tracking-wider text-zinc-500">
-            Sorted by fee-adjusted spread &middot; Auto-refreshes every 30s
+            Sorted by volume &middot; Auto-refreshes every 10s
           </p>
         </div>
         {/* Live indicator */}
