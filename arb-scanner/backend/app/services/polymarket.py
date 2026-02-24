@@ -123,6 +123,7 @@ async def _fetch_page(client: httpx.AsyncClient, offset: int) -> list[dict]:
 async def fetch_polymarket_markets() -> list[NormalizedMarket]:
     """Fetch all active Polymarket markets from the Gamma API with offset pagination."""
     markets: list[NormalizedMarket] = []
+    filtered = 0
     offset = 0
 
     async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
@@ -134,7 +135,10 @@ async def fetch_polymarket_markets() -> list[NormalizedMarket]:
             for raw in raw_markets:
                 market = _normalize(raw)
                 if market:
-                    markets.append(market)
+                    if market.volume > 0:
+                        markets.append(market)
+                    else:
+                        filtered += 1
 
             logger.debug("Polymarket: fetched %d markets at offset=%d", len(raw_markets), offset)
 
@@ -142,7 +146,10 @@ async def fetch_polymarket_markets() -> list[NormalizedMarket]:
                 break  # last page
             offset += _PAGE_SIZE
 
-    logger.info("Polymarket: fetched %d valid markets total", len(markets))
+    logger.info(
+        "Polymarket: fetched %d active markets (%d zero-volume filtered)",
+        len(markets), filtered,
+    )
     return markets
 
 
