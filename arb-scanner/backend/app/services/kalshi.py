@@ -19,58 +19,56 @@ _PLATFORM = "kalshi"
 
 
 async def _fetch_series_categories(client: httpx.AsyncClient) -> dict[str, str]:
-    """Fetch all Kalshi series and return a mapping of series_ticker → category name."""
+    """Fetch all Kalshi series and return series_ticker -> category name mapping."""
     categories: dict[str, str] = {}
     cursor = None
-    backoff = 1.0
 
     while True:
         params: dict = {"limit": _PAGE_SIZE}
         if cursor:
             params["cursor"] = cursor
 
-        resp = None
+        backoff = 1.0
+        success = False
+
         for attempt in range(_RETRIES):
             try:
                 resp = await client.get(KALSHI_SERIES_URL, params=params)
                 if resp.status_code == 429:
                     import asyncio
-                    logger.warning("Kalshi series rate-limited, backing off %ss", backoff * 3)
-                    await asyncio.sleep(backoff * 3)
+                    wait = backoff * 3
+                    logger.warning("Kalshi series rate-limited, backing off %.0fs", wait)
+                    await asyncio.sleep(wait)
                     backoff *= 2
                     continue
                 resp.raise_for_status()
+                data = resp.json()
+                for s in data.get("series") or []:
+                    ticker = s.get("ticker") or s.get("series_ticker") or ""
+                    category = s.get("category") or s.get("title") or ""
+                    if ticker:
+                        categories[ticker] = category
+                cursor = data.get("cursor")
+                series_count = len(data.get("series") or [])
+                success = True
+                if not cursor or series_count < _PAGE_SIZE:
+                    logger.info("Kalshi: loaded %d series categories", len(categories))
+                    return categories
                 break
             except httpx.HTTPStatusError as exc:
                 logger.warning("Kalshi series HTTP %s (attempt %d)", exc.response.status_code, attempt + 1)
                 if exc.response.status_code < 500:
                     return categories
-                import asyncio
-                await asyncio.sleep(backoff)
-                backoff *= 2
             except httpx.HTTPError as exc:
                 logger.warning("Kalshi series network error (attempt %d): %s", attempt + 1, exc)
-                import asyncio
-                await asyncio.sleep(backoff)
-                backoff *= 2
+            import asyncio
+            await asyncio.sleep(backoff)
+            backoff *= 2
 
-        if resp is None or not resp.is_success:
+        if not success:
             logger.warning("Failed to fetch Kalshi series, proceeding without categories")
-            break
+            return categories
 
-        data = resp.json()
-        series_list = data.get("series") or []
-        for s in series_list:
-            ticker = s.get("ticker") or s.get("series_ticker") or ""
-            category = s.get("category") or s.get("title") or ""
-            if ticker:
-                categories[ticker] = category
-
-        cursor = data.get("cursor")
-        if not cursor or len(series_list) < _PAGE_SIZE:
-            break
-
-    logger.info("Kalshi: loaded %d series categories", len(categories))
     return categories
 
 
@@ -88,16 +86,11 @@ def _normalize(raw: dict, series_categories: dict[str, str]) -> NormalizedMarket
         # Kalshi prices are in cents (0-100) — normalize to 0.0-1.0
         yes_ask_raw = raw.get("yes_ask")
         no_ask_raw = raw.get("no_ask")
-
         if yes_ask_raw is None or no_ask_raw is None:
             return None
 
-        yes_price = float(yes_ask_raw) / 100.0
-        no_price = float(no_ask_raw) / 100.0
-
-        # Clamp to valid probability range
-        yes_price = max(0.0, min(1.0, yes_price))
-        no_price = max(0.0, min(1.0, no_price))
+        yes_price = max(0.0, min(1.0, float(yes_ask_raw) / 100.0))
+        no_price = max(0.0, min(1.0, float(no_ask_raw) / 100.0))
 
         # Volume
         volume = float(raw.get("volume") or raw.get("volume_24h") or 0)
@@ -115,8 +108,7 @@ def _normalize(raw: dict, series_categories: dict[str, str]) -> NormalizedMarket
             except (ValueError, AttributeError):
                 pass
 
-        # URL
-        url = f"https://kalshi.com/markets/{ticker}" if ticker else ""
+        url = f"https://kalshi.com/markets/{ticker}"
 
         return NormalizedMarket(
             id=f"{_PLATFORM}:{ticker}",
@@ -139,10 +131,8 @@ def _normalize(raw: dict, series_categories: dict[str, str]) -> NormalizedMarket
 async def fetch_kalshi_markets() -> list[NormalizedMarket]:
     """Fetch all open Kalshi markets with cursor pagination and category enrichment."""
     async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-        # First, fetch series categories for enrichment
         series_categories = await _fetch_series_categories(client)
 
-        # Fetch markets with cursor pagination
         markets: list[NormalizedMarket] = []
         cursor = None
 
@@ -152,40 +142,35 @@ async def fetch_kalshi_markets() -> list[NormalizedMarket]:
                 params["cursor"] = cursor
 
             backoff = 1.0
-            resp = None
+            raw_markets = []
 
             for attempt in range(_RETRIES):
                 try:
                     resp = await client.get(KALSHI_MARKETS_URL, params=params)
                     if resp.status_code == 429:
                         import asyncio
-                        logger.warning("Kalshi rate-limited, backing off %ss", backoff * 3)
-                        await asyncio.sleep(backoff * 3)
+                        wait = backoff * 3
+                        logger.warning("Kalshi rate-limited, backing off %.0fs", wait)
+                        await asyncio.sleep(wait)
                         backoff *= 2
                         continue
                     resp.raise_for_status()
+                    data = resp.json()
+                    raw_markets = data.get("markets") or []
+                    cursor = data.get("cursor")
                     break
                 except httpx.HTTPStatusError as exc:
                     logger.warning("Kalshi HTTP %s (attempt %d)", exc.response.status_code, attempt + 1)
                     if exc.response.status_code < 500:
                         break
-                    import asyncio
-                    await asyncio.sleep(backoff)
-                    backoff *= 2
                 except httpx.HTTPError as exc:
                     logger.warning("Kalshi network error (attempt %d): %s", attempt + 1, exc)
-                    import asyncio
-                    await asyncio.sleep(backoff)
-                    backoff *= 2
-
-            if resp is None or not resp.is_success:
-                logger.error("Failed to fetch Kalshi page with cursor=%s — stopping", cursor)
-                break
-
-            data = resp.json()
-            raw_markets = data.get("markets") or []
+                import asyncio
+                await asyncio.sleep(backoff)
+                backoff *= 2
 
             if not raw_markets:
+                logger.debug("Kalshi: no markets at cursor=%s — stopping", cursor)
                 break
 
             for raw in raw_markets:
@@ -195,7 +180,6 @@ async def fetch_kalshi_markets() -> list[NormalizedMarket]:
 
             logger.debug("Kalshi: fetched %d markets (cursor=%s)", len(raw_markets), cursor)
 
-            cursor = data.get("cursor")
             if not cursor or len(raw_markets) < _PAGE_SIZE:
                 break  # last page
 
@@ -206,7 +190,7 @@ async def fetch_kalshi_markets() -> list[NormalizedMarket]:
 async def ingest_kalshi() -> dict[str, int]:
     """Fetch Kalshi markets and upsert into the database.
 
-    Returns counts: {"fetched": N, "upserted": N, "errors": N}.
+    Returns: {"fetched": N, "upserted": N, "errors": N}
     """
     try:
         markets = await fetch_kalshi_markets()
@@ -226,28 +210,21 @@ async def ingest_kalshi() -> dict[str, int]:
                                      volume, end_date, url, raw_data, last_updated)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
-                    question    = excluded.question,
-                    category    = excluded.category,
-                    yes_price   = excluded.yes_price,
-                    no_price    = excluded.no_price,
-                    volume      = excluded.volume,
-                    end_date    = excluded.end_date,
-                    url         = excluded.url,
-                    raw_data    = excluded.raw_data,
+                    question     = excluded.question,
+                    category     = excluded.category,
+                    yes_price    = excluded.yes_price,
+                    no_price     = excluded.no_price,
+                    volume       = excluded.volume,
+                    end_date     = excluded.end_date,
+                    url          = excluded.url,
+                    raw_data     = excluded.raw_data,
                     last_updated = excluded.last_updated
                 """,
                 (
-                    m.id,
-                    m.platform,
-                    m.question,
-                    m.category,
-                    m.yes_price,
-                    m.no_price,
-                    m.volume,
+                    m.id, m.platform, m.question, m.category,
+                    m.yes_price, m.no_price, m.volume,
                     m.end_date.isoformat() if m.end_date else None,
-                    m.url,
-                    json.dumps(m.raw_data),
-                    m.last_updated.isoformat(),
+                    m.url, json.dumps(m.raw_data), m.last_updated.isoformat(),
                 ),
             )
             upserted += 1
