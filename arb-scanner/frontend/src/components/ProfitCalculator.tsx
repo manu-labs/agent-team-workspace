@@ -25,20 +25,27 @@ export default function ProfitCalculator({ match }: ProfitCalculatorProps) {
   const [contracts, setContracts] = useState(100);
 
   const isBuyKalshi = match.direction === "buy_kalshi_sell_poly";
-  const buyPrice = isBuyKalshi ? match.kalshi_yes : match.poly_yes;
-  const sellPrice = isBuyKalshi ? match.poly_yes : match.kalshi_yes;
+  // The YES-buy platform has the cheaper YES price
+  const yesPrice = isBuyKalshi ? match.kalshi_yes : match.poly_yes;
+  // The NO-buy platform has the cheaper NO price (= 1 - other platform's YES)
+  const noPrice = isBuyKalshi ? match.poly_no : match.kalshi_no;
 
   // Fee: Kalshi actuarial formula per contract; Polymarket has no fees
-  const feePerContract = isBuyKalshi ? kalshiFeePerContract(buyPrice) : 0;
+  // Fee applies to the Kalshi leg regardless of which side (YES or NO)
+  const feePerContract = isBuyKalshi
+    ? kalshiFeePerContract(yesPrice)
+    : kalshiFeePerContract(match.kalshi_yes);
 
-  const buyCost = contracts * buyPrice;
-  const sellRevenue = contracts * sellPrice;
+  const buyYesCost = contracts * yesPrice;
+  const buyNoCost = contracts * noPrice;
   const feeAmount = contracts * feePerContract;
-  const netProfit = sellRevenue - buyCost - feeAmount;
-  const roi = buyCost > 0 ? netProfit / buyCost : 0;
+  const payout = contracts * 1.0;
+  const netProfit = payout - buyYesCost - buyNoCost - feeAmount;
+  const totalCost = buyYesCost + buyNoCost;
+  const roi = totalCost > 0 ? netProfit / totalCost : 0;
 
-  const buyPlatform = isBuyKalshi ? "Kalshi" : "Polymarket";
-  const sellPlatform = isBuyKalshi ? "Polymarket" : "Kalshi";
+  const buyYesPlatform = isBuyKalshi ? "Kalshi" : "Polymarket";
+  const buyNoPlatform = isBuyKalshi ? "Polymarket" : "Kalshi";
 
   return (
     <div className="border border-terminal-border bg-terminal-surface">
@@ -71,30 +78,34 @@ export default function ProfitCalculator({ match }: ProfitCalculatorProps) {
         <div className="mt-4 space-y-1.5">
           <div className="flex justify-between font-mono text-xs">
             <span className="text-zinc-500">
-              Buy {contracts} on {buyPlatform}
+              Buy {contracts} YES on {buyYesPlatform}
             </span>
             <span className="tabular-nums text-zinc-400">
-              {fmtUSD(-buyCost)}
+              {fmtUSD(-buyYesCost)}
             </span>
           </div>
           <div className="flex justify-between font-mono text-xs">
             <span className="text-zinc-500">
-              Sell {contracts} on {sellPlatform}
+              Buy {contracts} NO on {buyNoPlatform}
             </span>
             <span className="tabular-nums text-zinc-400">
-              {fmtUSD(sellRevenue)}
+              {fmtUSD(-buyNoCost)}
             </span>
           </div>
           {feeAmount > 0 && (
             <div className="flex justify-between font-mono text-xs">
-              <span className="text-zinc-500">
-                Kalshi fee
-              </span>
+              <span className="text-zinc-500">Kalshi fee</span>
               <span className="tabular-nums text-loss">
                 {fmtUSD(-feeAmount)}
               </span>
             </div>
           )}
+          <div className="flex justify-between font-mono text-xs">
+            <span className="text-zinc-500">Guaranteed payout</span>
+            <span className="tabular-nums text-zinc-400">
+              {fmtUSD(payout)}
+            </span>
+          </div>
 
           {/* Net profit */}
           <div className="mt-2 border-t border-terminal-border pt-2">
