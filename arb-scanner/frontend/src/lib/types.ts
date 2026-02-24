@@ -51,6 +51,7 @@ export interface Market {
 export interface MatchFilters {
   min_spread?: number;
   min_volume?: number;
+  ending_within_days?: number;
   sort?: "spread" | "volume" | "confidence" | "end_date";
   direction?: "asc" | "desc";
 }

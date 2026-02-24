@@ -82,6 +82,8 @@ export async function getMatches(filters?: MatchFilters): Promise<Match[]> {
   if (filters?.min_spread !== undefined) params.min_spread = String(filters.min_spread);
   if (filters?.min_volume !== undefined && filters.min_volume > 0)
     params.min_volume = String(filters.min_volume);
+  if (filters?.ending_within_days !== undefined && filters.ending_within_days > 0)
+    params.ending_within_days = String(filters.ending_within_days);
   if (filters?.sort) params.sort_by = filters.sort;
   if (filters?.direction) params.direction = filters.direction;
   const raw = await request<unknown[]>("/matches", params);
