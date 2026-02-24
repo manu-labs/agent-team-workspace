@@ -2,6 +2,7 @@ interface PlatformCardProps {
   name: "Polymarket" | "Kalshi";
   yes: number;
   no: number;
+  /** Platform-specific volume: USD for Polymarket, contracts for Kalshi */
   volume: number;
   url: string;
   /** Which contract to buy on this platform */
@@ -12,10 +13,18 @@ function fmt(n: number): string {
   return (n * 100).toFixed(1) + "\u00a2";
 }
 
-function fmtVolume(n: number): string {
-  if (n >= 1_000_000) return "$" + (n / 1_000_000).toFixed(2) + "M";
+/** Format Polymarket volume as USD ($94.5M, $3.4K, $12) */
+function fmtUSD(n: number): string {
+  if (n >= 1_000_000) return "$" + (n / 1_000_000).toFixed(1) + "M";
   if (n >= 1_000) return "$" + (n / 1_000).toFixed(0) + "K";
   return "$" + n.toFixed(0);
+}
+
+/** Format Kalshi volume as integer contracts (94.5M, 3.4K, 12) */
+function fmtContracts(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
+  if (n >= 1_000) return (n / 1_000).toFixed(0) + "K";
+  return Math.round(n).toString();
 }
 
 export default function PlatformCard({
@@ -26,6 +35,10 @@ export default function PlatformCard({
   url,
   buyAction,
 }: PlatformCardProps) {
+  const isPolymarket = name === "Polymarket";
+  const volumeValue = isPolymarket ? fmtUSD(volume) : fmtContracts(volume);
+  const volumeUnit = isPolymarket ? "USD" : "contracts";
+
   return (
     <div
       className={[
@@ -81,7 +94,8 @@ export default function PlatformCard({
           Volume
         </p>
         <p className="mt-0.5 font-mono text-sm tabular-nums text-zinc-400">
-          {fmtVolume(volume)}
+          {volumeValue}{" "}
+          <span className="text-[10px] text-zinc-600">{volumeUnit}</span>
         </p>
       </div>
     </div>
