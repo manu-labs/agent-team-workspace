@@ -6,9 +6,11 @@ interface ProfitCalculatorProps {
 }
 
 /**
- * Kalshi actuarial fee per contract.
- * Formula: min(0.07 * p * (1 - p), 0.02)  where p is the YES price paid.
- * Capped at $0.02 per contract.
+ * Kalshi fee formula (actuarial, capped at $0.02 per contract):
+ *   fee = min(0.07 * p * (1 - p), 0.02)
+ * where p is the YES price paid.
+ *
+ * Polymarket: zero fee in our model.
  */
 function kalshiFeePerContract(price: number): number {
   return Math.min(0.07 * price * (1 - price), 0.02);
@@ -31,7 +33,7 @@ export default function ProfitCalculator({ match }: ProfitCalculatorProps) {
   const buyPrice = isBuyKalshi ? match.kalshi_yes : match.poly_yes;
   const sellPrice = isBuyKalshi ? match.poly_yes : match.kalshi_yes;
 
-  // Fee per contract in dollars (Polymarket charges no fee on binary markets)
+  // Kalshi: actuarial fee per contract. Polymarket: zero.
   const feePerContract = isBuyKalshi ? kalshiFeePerContract(buyPrice) : 0;
 
   const buyCost = contracts * buyPrice;
@@ -91,20 +93,16 @@ export default function ProfitCalculator({ match }: ProfitCalculatorProps) {
           <div className="flex justify-between font-mono text-xs">
             <span className="text-zinc-500">
               {buyPlatform} fee
-              {isBuyKalshi && (
-                <span className="ml-1 text-zinc-600">
-                  (actuarial, capped $0.02/contract)
-                </span>
-              )}
+              {isBuyKalshi
+                ? ` (${(feePerContract * 100).toFixed(2)}¢/contract)`
+                : " (none)"}
             </span>
-            {feeAmount > 0 ? (
-              <span className="tabular-nums text-loss">{fmtUSD(-feeAmount)}</span>
-            ) : (
-              <span className="tabular-nums text-zinc-600">Free</span>
-            )}
+            <span className="tabular-nums text-loss">
+              {fmtUSD(-feeAmount)}
+            </span>
           </div>
 
-          {/* Divider + net profit */}
+          {/* Divider */}
           <div className="mt-2 border-t border-terminal-border pt-2">
             <div className="flex items-baseline justify-between">
               <span className="font-mono text-xs uppercase tracking-wider text-zinc-400">
@@ -133,8 +131,9 @@ export default function ProfitCalculator({ match }: ProfitCalculatorProps) {
         </div>
 
         <p className="mt-3 font-mono text-[10px] leading-relaxed text-zinc-600">
-          Assumes immediate fill at quoted prices. Does not account for
-          slippage or counterparty risk.
+          Kalshi fee: min(7% &times; p &times; (1&minus;p), $0.02) per contract.
+          Polymarket: no fee. Assumes immediate fill at quoted prices.
+          Does not account for slippage or counterparty risk.
         </p>
       </div>
     </div>
