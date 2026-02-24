@@ -32,7 +32,8 @@ async def init_db():
             end_date TEXT,
             url TEXT DEFAULT '',
             raw_data TEXT DEFAULT '{}',
-            last_updated TEXT NOT NULL
+            last_updated TEXT NOT NULL,
+            embed_text TEXT DEFAULT ''
         );
 
         CREATE TABLE IF NOT EXISTS matches (
@@ -77,6 +78,13 @@ async def init_db():
         CREATE INDEX IF NOT EXISTS idx_price_history_time ON price_history(recorded_at);
         CREATE INDEX IF NOT EXISTS idx_embeddings_market ON market_embeddings(market_id);
     """)
+
+    # Migration: add embed_text column to existing databases that predate this column
+    try:
+        await db.execute("ALTER TABLE markets ADD COLUMN embed_text TEXT DEFAULT ''")
+    except Exception:
+        pass  # Column already exists — safe to ignore
+
     await db.commit()
 
 
