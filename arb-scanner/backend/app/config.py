@@ -8,8 +8,10 @@ class Settings(BaseSettings):
     DB_PATH: str = "/data/arb_scanner.db"
     POLL_INTERVAL_SECONDS: int = 60
     MATCH_INTERVAL_SECONDS: int = 300
-    DISCOVERY_INTERVAL_SECONDS: int = 1800
+    DISCOVERY_INTERVAL_SECONDS: int = 3600
     PRICE_REFRESH_INTERVAL_SECONDS: int = 15
+    MATCH_EXPIRY_DAYS: int = 7
+    MIN_MATCH_VOLUME: int = 20000
     CORS_ORIGINS: str = '["*"]'
 
     model_config = {"env_file": ".env"}
