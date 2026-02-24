@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timezone
+from urllib.parse import quote
 
 import httpx
 
@@ -116,10 +117,10 @@ def _normalize(raw: dict, series_categories: dict[str, str]) -> NormalizedMarket
             except (ValueError, AttributeError):
                 pass
 
-        # URL — use event_ticker (e.g. KXEVENT-S2026XXXXX), not ticker which has
-        # a per-outcome hex suffix (e.g. KXEVENT-S2026XXXXX-A9705FC0EA3) and 404s.
-        event_ticker = raw.get("event_ticker") or ticker
-        url = f"https://kalshi.com/markets/{event_ticker}"
+        # URL — Kalshi API doesn't expose a front-end URL or slug. Their site uses
+        # kalshi.com/markets/{series_ticker}/{slug} but the slug isn't in the API.
+        # Use search fallback which always works and takes the user directly to the market.
+        url = f"https://kalshi.com/browse?q={quote(title)}"
 
         return NormalizedMarket(
             id=f"{_PLATFORM}:{ticker}",
