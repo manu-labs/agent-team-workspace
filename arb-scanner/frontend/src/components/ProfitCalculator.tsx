@@ -5,10 +5,11 @@ interface ProfitCalculatorProps {
   match: Match;
 }
 
-// Kalshi fee: ~7% of winnings (taker fee on the buy side)
-// Polymarket fee: ~2% of winnings
-const KALSHI_FEE_RATE = 0.07;
-const POLY_FEE_RATE = 0.02;
+// Kalshi actuarial fee formula: min(7% * p * (1-p), $0.02) per contract
+// Polymarket: no fees
+function kalshiFeePerContract(price: number): number {
+  return Math.min(0.07 * price * (1 - price), 0.02);
+}
 
 function fmtUSD(n: number): string {
   const abs = Math.abs(n);
@@ -26,13 +27,13 @@ export default function ProfitCalculator({ match }: ProfitCalculatorProps) {
   const isBuyKalshi = match.direction === "buy_kalshi_sell_poly";
   const buyPrice = isBuyKalshi ? match.kalshi_yes : match.poly_yes;
   const sellPrice = isBuyKalshi ? match.poly_yes : match.kalshi_yes;
-  const buyFeeRate = isBuyKalshi ? KALSHI_FEE_RATE : POLY_FEE_RATE;
 
-  // Each contract costs 1 unit priced in cents → dollar cost = contracts * price
+  // Fee: Kalshi actuarial formula per contract; Polymarket has no fees
+  const feePerContract = isBuyKalshi ? kalshiFeePerContract(buyPrice) : 0;
+
   const buyCost = contracts * buyPrice;
   const sellRevenue = contracts * sellPrice;
-  // Fee applied to winnings on buy side
-  const feeAmount = contracts * buyPrice * buyFeeRate;
+  const feeAmount = contracts * feePerContract;
   const netProfit = sellRevenue - buyCost - feeAmount;
   const roi = buyCost > 0 ? netProfit / buyCost : 0;
 
@@ -50,7 +51,7 @@ export default function ProfitCalculator({ match }: ProfitCalculatorProps) {
       <div className="p-4">
         {/* Contracts input */}
         <div className="flex items-center gap-3">
-          <label className="font-mono text-[10px] uppercase tracking-wider text-zinc-500 w-20">
+          <label className="w-20 font-mono text-[10px] uppercase tracking-wider text-zinc-500">
             Contracts
           </label>
           <input
@@ -84,17 +85,19 @@ export default function ProfitCalculator({ match }: ProfitCalculatorProps) {
               {fmtUSD(sellRevenue)}
             </span>
           </div>
-          <div className="flex justify-between font-mono text-xs">
-            <span className="text-zinc-500">
-              {buyPlatform} fee ({(buyFeeRate * 100).toFixed(0)}%)
-            </span>
-            <span className="tabular-nums text-loss">
-              {fmtUSD(-feeAmount)}
-            </span>
-          </div>
+          {feeAmount > 0 && (
+            <div className="flex justify-between font-mono text-xs">
+              <span className="text-zinc-500">
+                Kalshi fee
+              </span>
+              <span className="tabular-nums text-loss">
+                {fmtUSD(-feeAmount)}
+              </span>
+            </div>
+          )}
 
-          {/* Divider */}
-          <div className="border-t border-terminal-border pt-2 mt-2">
+          {/* Net profit */}
+          <div className="mt-2 border-t border-terminal-border pt-2">
             <div className="flex items-baseline justify-between">
               <span className="font-mono text-xs uppercase tracking-wider text-zinc-400">
                 Net profit
@@ -122,8 +125,8 @@ export default function ProfitCalculator({ match }: ProfitCalculatorProps) {
         </div>
 
         <p className="mt-3 font-mono text-[10px] leading-relaxed text-zinc-600">
-          Assumes immediate fill at quoted prices. Does not account for
-          slippage or counterparty risk.
+          Assumes immediate fill at quoted prices. Kalshi fee: min(7% &times; p &times; (1&minus;p),&nbsp;$0.02)/contract.
+          Does not account for slippage or counterparty risk.
         </p>
       </div>
     </div>
