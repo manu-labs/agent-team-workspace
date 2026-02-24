@@ -34,22 +34,50 @@ async function request<T>(path: string, params?: Record<string, string>): Promis
   return res.json();
 }
 
+// Kalshi actuarial fee: min(7% * p * (1-p), $0.02) per contract
+// Symmetric — same for YES at p or NO at (1-p)
+function kalshiFee(kalshiYes: number): number {
+  return Math.min(0.07 * kalshiYes * (1 - kalshiYes), 0.02);
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function transformMatch(raw: any): Match {
   const polyYes = raw.poly_yes ?? raw.polymarket_yes ?? 0;
+  const polyNo = raw.poly_no ?? (1 - polyYes);
   const kalshiYes = raw.kalshi_yes ?? 0;
+  const kalshiNo = raw.kalshi_no ?? (1 - kalshiYes);
   const polyVolume = raw.poly_volume ?? raw.polymarket_volume ?? 0;
   const kalshiVolume = raw.kalshi_volume ?? 0;
+
+  // Compute spread from live prices: 100 - YES_A - NO_B
+  // Pick the direction that gives the best result
+  const spreadBuyPoly = 1 - polyYes - kalshiNo;   // Buy YES Poly + Buy NO Kalshi
+  const spreadBuyKalshi = 1 - kalshiYes - polyNo;  // Buy YES Kalshi + Buy NO Poly
+
+  let rawSpread: number;
+  let direction: "buy_kalshi_sell_poly" | "buy_poly_sell_kalshi";
+  if (spreadBuyKalshi >= spreadBuyPoly) {
+    rawSpread = spreadBuyKalshi;
+    direction = "buy_kalshi_sell_poly";
+  } else {
+    rawSpread = spreadBuyPoly;
+    direction = "buy_poly_sell_kalshi";
+  }
+
+  // Fee-adjusted spread: subtract Kalshi actuarial fee
+  const fee = kalshiFee(kalshiYes);
+  const feeAdjustedSpread = rawSpread - fee;
+
   return {
     id: String(raw.id),
     question: raw.question,
     poly_yes: polyYes,
-    poly_no: raw.poly_no ?? (1 - polyYes),
+    poly_no: polyNo,
     kalshi_yes: kalshiYes,
-    kalshi_no: raw.kalshi_no ?? (1 - kalshiYes),
-    raw_spread: raw.raw_spread ?? raw.spread ?? 0,
-    fee_adjusted_spread: raw.fee_adjusted_spread ?? 0,
-    direction: raw.direction,
+    kalshi_no: kalshiNo,
+    raw_spread: rawSpread,
+    fee_adjusted_spread: feeAdjustedSpread,
+    direction,
     volume: raw.volume ?? Math.min(polyVolume, kalshiVolume),
     poly_volume: polyVolume,
     kalshi_volume: kalshiVolume,
@@ -65,14 +93,23 @@ function transformMatch(raw: any): Match {
 function transformSnapshot(raw: any): PriceSnapshot {
   const polyYes = raw.polymarket_yes ?? raw.poly_yes ?? 0;
   const kalshiYes = raw.kalshi_yes ?? 0;
+  const polyNo = raw.poly_no ?? 1 - polyYes;
+  const kalshiNo = raw.kalshi_no ?? 1 - kalshiYes;
+
+  // Compute spread from snapshot prices too
+  const spreadBuyPoly = 1 - polyYes - kalshiNo;
+  const spreadBuyKalshi = 1 - kalshiYes - polyNo;
+  const rawSpread = Math.max(spreadBuyPoly, spreadBuyKalshi);
+  const fee = kalshiFee(kalshiYes);
+
   return {
     timestamp: raw.recorded_at || raw.timestamp || "",
     poly_yes: polyYes,
-    poly_no: raw.poly_no ?? 1 - polyYes,
+    poly_no: polyNo,
     kalshi_yes: kalshiYes,
-    kalshi_no: raw.kalshi_no ?? 1 - kalshiYes,
-    raw_spread: raw.spread ?? raw.raw_spread ?? 0,
-    fee_adjusted_spread: raw.fee_adjusted_spread ?? 0,
+    kalshi_no: kalshiNo,
+    raw_spread: rawSpread,
+    fee_adjusted_spread: rawSpread - fee,
   };
 }
 
