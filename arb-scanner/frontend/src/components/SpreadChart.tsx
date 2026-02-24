@@ -36,33 +36,43 @@ interface ChartPoint {
   spread: number;
 }
 
+function toChartPoints(
+  snapshots: PriceSnapshot[],
+  hours: number
+): ChartPoint[] {
+  const cutoff = Date.now() - hours * 3_600_000;
+  return snapshots
+    .filter((s) => new Date(s.timestamp).getTime() >= cutoff)
+    .map((s) => ({
+      time: formatTime(s.timestamp, hours),
+      spread: parseFloat((s.fee_adjusted_spread * 100).toFixed(2)),
+    }));
+}
+
 export default function SpreadChart({
   matchId,
   currentSpread,
 }: SpreadChartProps) {
   const [hours, setHours] = useState(24);
-  const [data, setData] = useState<ChartPoint[]>([]);
+  // Full history fetched once; range toggle filters client-side
+  const [allSnapshots, setAllSnapshots] = useState<PriceSnapshot[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
     setError(null);
-    getMatchHistory(matchId, hours)
+    getMatchHistory(matchId)
       .then((snapshots: PriceSnapshot[]) => {
-        setData(
-          snapshots.map((s) => ({
-            time: formatTime(s.timestamp, hours),
-            spread: parseFloat((s.fee_adjusted_spread * 100).toFixed(2)),
-          }))
-        );
+        setAllSnapshots(snapshots);
       })
       .catch((err: unknown) => {
         setError(err instanceof Error ? err.message : "Failed to load history");
       })
       .finally(() => setLoading(false));
-  }, [matchId, hours]);
+  }, [matchId]);
 
+  const data = toChartPoints(allSnapshots, hours);
   const currentCents = parseFloat((currentSpread * 100).toFixed(2));
 
   return (
@@ -109,7 +119,7 @@ export default function SpreadChart({
         {loading === false && error === null && data.length === 0 && (
           <div className="flex h-40 items-center justify-center">
             <span className="font-mono text-xs uppercase tracking-wider text-zinc-600">
-              No history available
+              No history in this range
             </span>
           </div>
         )}
