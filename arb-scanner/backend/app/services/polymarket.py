@@ -183,7 +183,7 @@ async def ingest_polymarket() -> dict[str, int]:
                     m.id, m.platform, m.question, m.category,
                     m.yes_price, m.no_price, m.volume,
                     m.end_date.isoformat() if m.end_date else None,
-                    m.url, json.dumps(m.raw_data), m.last_updated.isoformat(),
+                    m.url, '{}', m.last_updated.isoformat(),
                 ),
             )
             upserted += 1
