@@ -88,13 +88,13 @@ export default function MatchDetail({ match }: MatchDetailProps) {
         </div>
       </div>
 
-      {/* Platform cards */}
+      {/* Platform cards — each card receives its own platform's volume */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <PlatformCard
           name="Polymarket"
           yes={match.poly_yes}
           no={match.poly_no}
-          volume={match.volume}
+          volume={match.poly_volume}
           url={match.poly_url}
           buyAction={isBuyKalshi ? "NO" : "YES"}
         />
@@ -102,7 +102,7 @@ export default function MatchDetail({ match }: MatchDetailProps) {
           name="Kalshi"
           yes={match.kalshi_yes}
           no={match.kalshi_no}
-          volume={match.volume}
+          volume={match.kalshi_volume}
           url={match.kalshi_url}
           buyAction={isBuyKalshi ? "YES" : "NO"}
         />
