@@ -1,26 +1,48 @@
 import { useParams, Link } from "react-router-dom";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { getMatch } from "../lib/api";
 import type { Match } from "../lib/types";
 import MatchDetail from "../components/MatchDetail";
+
+const REFRESH_INTERVAL_MS = 5_000;
 
 export default function Detail() {
   const { id } = useParams<{ id: string }>();
   const [match, setMatch] = useState<Match | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
-  useEffect(() => {
+  const fetchMatch = useCallback(async () => {
     if (id === undefined) return;
-    setLoading(true);
-    setError(null);
-    getMatch(id)
-      .then(setMatch)
-      .catch((err: unknown) => {
-        setError(err instanceof Error ? err.message : "Failed to load match");
-      })
-      .finally(() => setLoading(false));
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+
+    try {
+      const data = await getMatch(id);
+      if (ctrl.signal.aborted) return;
+      setMatch(data);
+      setError(null);
+    } catch (err) {
+      if (ctrl.signal.aborted) return;
+      setError(err instanceof Error ? err.message : "Failed to load match");
+    } finally {
+      if (ctrl.signal.aborted === false) setLoading(false);
+    }
   }, [id]);
+
+  // Initial load
+  useEffect(() => {
+    void fetchMatch();
+    return () => abortRef.current?.abort();
+  }, [fetchMatch]);
+
+  // Auto-refresh every 5s
+  useEffect(() => {
+    const interval = setInterval(() => void fetchMatch(), REFRESH_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [fetchMatch]);
 
   if (loading) {
     return (
