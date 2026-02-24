@@ -289,8 +289,8 @@ async def _run_cycle() -> None:
         _last_run = {
             "started_at": started_at.isoformat(),
             "elapsed_seconds": round(elapsed, 2),
-            "polymarket": poly_result,
-            "kalshi": kalshi_result,
+            "polymarket": {k: v for k, v in poly_result.items() if k != "market_ids"},
+            "kalshi": {k: v for k, v in kalshi_result.items() if k != "market_ids"},
             "embed_count": embed_count,
             "match_result": match_result,
         }
