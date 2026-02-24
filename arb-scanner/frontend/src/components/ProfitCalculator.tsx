@@ -6,15 +6,15 @@ interface ProfitCalculatorProps {
 }
 
 /**
- * Kalshi fee formula (actuarial, capped at $0.02 per contract):
- *   fee = min(0.07 * p * (1 - p), 0.02)
- * where p is the YES price paid.
- *
- * Polymarket: zero fee in our model.
+ * Kalshi taker fee formula: min(7% * p * (1-p), 2¢ per contract)
+ * where p is the price paid (0–1 scale).
  */
-function kalshiFeePerContract(price: number): number {
+function kalshiFee(price: number): number {
   return Math.min(0.07 * price * (1 - price), 0.02);
 }
+
+// Polymarket currently charges no taker fee.
+const POLY_FEE_RATE = 0;
 
 function fmtUSD(n: number): string {
   const abs = Math.abs(n);
@@ -33,8 +33,10 @@ export default function ProfitCalculator({ match }: ProfitCalculatorProps) {
   const buyPrice = isBuyKalshi ? match.kalshi_yes : match.poly_yes;
   const sellPrice = isBuyKalshi ? match.poly_yes : match.kalshi_yes;
 
-  // Kalshi: actuarial fee per contract. Polymarket: zero.
-  const feePerContract = isBuyKalshi ? kalshiFeePerContract(buyPrice) : 0;
+  // Fee is only on the buy side; compute per contract then multiply
+  const feePerContract = isBuyKalshi
+    ? kalshiFee(buyPrice)
+    : POLY_FEE_RATE * buyPrice;
 
   const buyCost = contracts * buyPrice;
   const sellRevenue = contracts * sellPrice;
@@ -44,6 +46,9 @@ export default function ProfitCalculator({ match }: ProfitCalculatorProps) {
 
   const buyPlatform = isBuyKalshi ? "Kalshi" : "Polymarket";
   const sellPlatform = isBuyKalshi ? "Polymarket" : "Kalshi";
+  const feeLabel = isBuyKalshi
+    ? "Kalshi fee (7% · p · (1-p))"
+    : "Polymarket fee";
 
   return (
     <div className="border border-terminal-border bg-terminal-surface">
@@ -91,12 +96,7 @@ export default function ProfitCalculator({ match }: ProfitCalculatorProps) {
             </span>
           </div>
           <div className="flex justify-between font-mono text-xs">
-            <span className="text-zinc-500">
-              {buyPlatform} fee
-              {isBuyKalshi
-                ? ` (${(feePerContract * 100).toFixed(2)}¢/contract)`
-                : " (none)"}
-            </span>
+            <span className="text-zinc-500">{feeLabel}</span>
             <span className="tabular-nums text-loss">
               {fmtUSD(-feeAmount)}
             </span>
@@ -131,9 +131,8 @@ export default function ProfitCalculator({ match }: ProfitCalculatorProps) {
         </div>
 
         <p className="mt-3 font-mono text-[10px] leading-relaxed text-zinc-600">
-          Kalshi fee: min(7% &times; p &times; (1&minus;p), $0.02) per contract.
-          Polymarket: no fee. Assumes immediate fill at quoted prices.
-          Does not account for slippage or counterparty risk.
+          Assumes immediate fill at quoted prices. Does not account for
+          slippage or counterparty risk.
         </p>
       </div>
     </div>
