@@ -116,7 +116,10 @@ def _normalize(raw: dict, series_categories: dict[str, str]) -> NormalizedMarket
             except (ValueError, AttributeError):
                 pass
 
-        url = f"https://kalshi.com/markets/{ticker}"
+        # URL — use event_ticker (e.g. KXEVENT-S2026XXXXX), not ticker which has
+        # a per-outcome hex suffix (e.g. KXEVENT-S2026XXXXX-A9705FC0EA3) and 404s.
+        event_ticker = raw.get("event_ticker") or ticker
+        url = f"https://kalshi.com/markets/{event_ticker}"
 
         return NormalizedMarket(
             id=f"{_PLATFORM}:{ticker}",
