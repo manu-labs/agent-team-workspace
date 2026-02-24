@@ -5,11 +5,6 @@ interface ProfitCalculatorProps {
   match: Match;
 }
 
-// Kalshi fee: ~7% of winnings (taker fee on the buy side)
-// Polymarket fee: ~2% of winnings
-const KALSHI_FEE_RATE = 0.07;
-const POLY_FEE_RATE = 0.02;
-
 function fmtUSD(n: number): string {
   const abs = Math.abs(n);
   const sign = n < 0 ? "-" : "";
@@ -26,12 +21,12 @@ export default function ProfitCalculator({ match }: ProfitCalculatorProps) {
   const isBuyKalshi = match.direction === "buy_kalshi_sell_poly";
   const buyPrice = isBuyKalshi ? match.kalshi_yes : match.poly_yes;
   const sellPrice = isBuyKalshi ? match.poly_yes : match.kalshi_yes;
-  const buyFeeRate = isBuyKalshi ? KALSHI_FEE_RATE : POLY_FEE_RATE;
+  // Use per-match fee rates from the backend rather than hardcoded constants
+  const buyFeeRate = isBuyKalshi ? match.kalshi_fee : match.polymarket_fee;
 
   // Each contract costs 1 unit priced in cents -> dollar cost = contracts * price
   const buyCost = contracts * buyPrice;
   const sellRevenue = contracts * sellPrice;
-  // Fee applied to winnings on buy side
   const feeAmount = contracts * buyPrice * buyFeeRate;
   const netProfit = sellRevenue - buyCost - feeAmount;
   const roi = buyCost > 0 ? netProfit / buyCost : 0;
@@ -86,7 +81,7 @@ export default function ProfitCalculator({ match }: ProfitCalculatorProps) {
           </div>
           <div className="flex justify-between font-mono text-xs">
             <span className="text-zinc-500">
-              {buyPlatform} fee ({(buyFeeRate * 100).toFixed(0)}%)
+              {buyPlatform} fee ({(buyFeeRate * 100).toFixed(1)}%)
             </span>
             <span className="tabular-nums text-loss">
               {fmtUSD(-feeAmount)}
