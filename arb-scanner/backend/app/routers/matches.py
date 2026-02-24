@@ -65,6 +65,7 @@ def _serialize_snapshot(row: dict) -> dict:
 async def list_matches(
     min_spread: float = Query(0, ge=0, description="Minimum fee-adjusted spread"),
     min_volume: float = Query(0, ge=0, description="Minimum volume (min of both platforms)"),
+    ending_within_days: int = Query(0, ge=0, description="Only show markets ending within N days (0 = no filter)"),
     sort_by: str = Query("volume", description="Sort by: spread, volume, confidence, or end_date"),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
@@ -73,6 +74,23 @@ async def list_matches(
     db = await get_db()
 
     order = ORDER_MAP.get(sort_by, ORDER_MAP["volume"])
+
+    # Build WHERE clause dynamically
+    where_clauses = [
+        "m.fee_adjusted_spread >= ?",
+        "MIN(m.polymarket_volume, m.kalshi_volume) >= ?",
+    ]
+    params: list = [min_spread, min_volume]
+
+    if ending_within_days > 0:
+        cutoff = (datetime.now(timezone.utc) + timedelta(days=ending_within_days)).isoformat()
+        where_clauses.append("COALESCE(pm.end_date, km.end_date) <= ?")
+        where_clauses.append("COALESCE(pm.end_date, km.end_date) >= ?")
+        params.append(cutoff)
+        params.append(datetime.now(timezone.utc).isoformat())
+
+    where_sql = " AND ".join(where_clauses)
+    params.extend([limit, skip])
 
     cursor = await db.execute(
         f"""SELECT
@@ -88,11 +106,10 @@ async def list_matches(
         FROM matches m
         LEFT JOIN markets pm ON m.polymarket_id = pm.id
         LEFT JOIN markets km ON m.kalshi_id = km.id
-        WHERE m.fee_adjusted_spread >= ?
-          AND MIN(m.polymarket_volume, m.kalshi_volume) >= ?
+        WHERE {where_sql}
         ORDER BY {order}
         LIMIT ? OFFSET ?""",
-        [min_spread, min_volume, limit, skip],
+        params,
     )
     rows = await cursor.fetchall()
     return [_serialize_match(dict(row)) for row in rows]
