@@ -83,13 +83,22 @@ def _normalize(raw: dict, series_categories: dict[str, str]) -> NormalizedMarket
             return None
 
         # Kalshi prices are in cents (0-100) — normalize to 0.0-1.0
-        yes_ask_raw = raw.get("yes_ask")
-        no_ask_raw = raw.get("no_ask")
-        if yes_ask_raw is None or no_ask_raw is None:
-            return None
+        # Use last_price (what Kalshi shows on their site) rather than yes_ask,
+        # which is the ask side of the order book and wildly inflated in illiquid markets.
+        # Fallback chain: last_price → midpoint(yes_bid, yes_ask) → yes_ask alone
+        last_price_raw = raw.get("last_price", 0)
+        yes_ask_raw = raw.get("yes_ask", 0)
+        yes_bid_raw = raw.get("yes_bid", 0)
 
-        yes_price = max(0.0, min(1.0, float(yes_ask_raw) / 100.0))
-        no_price = max(0.0, min(1.0, float(no_ask_raw) / 100.0))
+        if last_price_raw and last_price_raw > 0:
+            yes_price = max(0.0, min(1.0, float(last_price_raw) / 100.0))
+        elif yes_ask_raw and yes_bid_raw:
+            yes_price = max(0.0, min(1.0, (float(yes_ask_raw) + float(yes_bid_raw)) / 200.0))
+        else:
+            yes_price = max(0.0, min(1.0, float(yes_ask_raw or 0) / 100.0))
+
+        # Derive no_price from complement for consistency
+        no_price = max(0.0, min(1.0, 1.0 - yes_price))
 
         # Volume
         volume = float(raw.get("volume") or raw.get("volume_24h") or 0)
