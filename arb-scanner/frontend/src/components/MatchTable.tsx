@@ -100,6 +100,17 @@ const VOLUME_PRESETS: { label: string; value: number }[] = [
   { label: "$100K", value: 100_000 },
 ];
 
+// ── Ends filter presets ───────────────────────────────────────────────────────
+
+const ENDS_PRESETS: { label: string; value: number }[] = [
+  { label: "7D", value: 7 },
+  { label: "30D", value: 30 },
+  { label: "90D", value: 90 },
+  { label: "All", value: 0 },
+];
+
+const DEFAULT_ENDING_DAYS = 7;
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function MatchTable() {
@@ -112,6 +123,7 @@ export default function MatchTable() {
   const [search, setSearch] = useState("");
   const [minSpreadCents, setMinSpreadCents] = useState(0); // slider in cents
   const [minVolume, setMinVolume] = useState(0); // server-side volume filter
+  const [endingDays, setEndingDays] = useState(DEFAULT_ENDING_DAYS); // server-side expiry filter
   const [sortKey, setSortKey] = useState<SortKey>("volume"); // default: most liquid first
 
   const abortRef = useRef<AbortController | null>(null);
@@ -124,6 +136,7 @@ export default function MatchTable() {
     try {
       const filters: MatchFilters = { sort: "volume", direction: "desc" };
       if (minVolume > 0) filters.min_volume = minVolume;
+      if (endingDays > 0) filters.ending_within_days = endingDays;
       const data = await getMatches(filters);
       if (ctrl.signal.aborted) return;
       setMatches(data);
@@ -135,9 +148,9 @@ export default function MatchTable() {
     } finally {
       if (ctrl.signal.aborted === false) setLoading(false);
     }
-  }, [minVolume]);
+  }, [minVolume, endingDays]);
 
-  // Initial load + re-fetch when minVolume changes
+  // Initial load + re-fetch when server-side filters change
   useEffect(() => {
     void fetchMatches();
     return () => abortRef.current?.abort();
@@ -162,7 +175,8 @@ export default function MatchTable() {
     sortKey
   );
 
-  const hasActiveFilters = search.length > 0 || minSpreadCents > 0 || minVolume > 0;
+  const hasActiveFilters =
+    search.length > 0 || minSpreadCents > 0 || minVolume > 0 || endingDays !== DEFAULT_ENDING_DAYS;
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -210,6 +224,27 @@ export default function MatchTable() {
               className={[
                 "px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider transition-colors",
                 minVolume === value
+                  ? "bg-terminal-muted text-zinc-100"
+                  : "text-zinc-500 hover:text-zinc-300",
+              ].join(" ")}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Ends filter presets */}
+        <div className="flex items-center gap-0.5">
+          <span className="mr-1 font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+            Ends
+          </span>
+          {ENDS_PRESETS.map(({ label, value }) => (
+            <button
+              key={label}
+              onClick={() => setEndingDays(value)}
+              className={[
+                "px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider transition-colors",
+                endingDays === value
                   ? "bg-terminal-muted text-zinc-100"
                   : "text-zinc-500 hover:text-zinc-300",
               ].join(" ")}
@@ -311,6 +346,7 @@ export default function MatchTable() {
                         setSearch("");
                         setMinSpreadCents(0);
                         setMinVolume(0);
+                        setEndingDays(DEFAULT_ENDING_DAYS);
                       }}
                       className="mt-3 font-mono text-[10px] uppercase tracking-wider text-zinc-500 underline hover:text-zinc-300"
                     >
