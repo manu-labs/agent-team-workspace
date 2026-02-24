@@ -30,8 +30,8 @@ _RETRIES = 3
 _ACTIVE_MARKET_FILTER = "volume > 0 AND yes_price BETWEEN 0.02 AND 0.98"
 
 
-def _question_hash(question: str) -> str:
-    return hashlib.sha256(question.strip().lower().encode()).hexdigest()
+def _question_hash(text: str) -> str:
+    return hashlib.sha256(text.strip().lower().encode()).hexdigest()
 
 
 def _serialize_embedding(vec: list[float]) -> bytes:
@@ -89,6 +89,10 @@ async def _call_openai_embed(texts: list[str]) -> list[list[float]]:
 async def embed_new_markets(db) -> int:
     """Embed new and changed markets, store BLOB in market_embeddings.
 
+    Uses embed_text (enriched platform-specific text) with fallback to question.
+    The question_hash is computed from embed_text, so changing embed_text triggers
+    re-embedding even if the question itself is unchanged.
+
     Returns count of markets embedded this call.
     """
     if not settings.OPENAI_API_KEY:
@@ -106,7 +110,7 @@ async def embed_new_markets(db) -> int:
 
     # Find markets with no embedding yet (LEFT JOIN miss)
     cursor = await db.execute(
-        """SELECT m.id, m.question
+        """SELECT m.id, m.question, m.embed_text
            FROM markets m
            LEFT JOIN market_embeddings me ON me.market_id = m.id
            WHERE me.market_id IS NULL
@@ -115,9 +119,9 @@ async def embed_new_markets(db) -> int:
     )
     new_markets = [dict(r) for r in await cursor.fetchall()]
 
-    # Find markets whose question changed — single JOIN query, no N+1
+    # Find markets whose embed_text changed — single JOIN query, no N+1
     cursor = await db.execute(
-        """SELECT m.id, m.question, me.question_hash
+        """SELECT m.id, m.question, m.embed_text, me.question_hash
            FROM markets m
            JOIN market_embeddings me ON me.market_id = m.id
            WHERE m.volume > 0
@@ -125,9 +129,9 @@ async def embed_new_markets(db) -> int:
     )
     rows = await cursor.fetchall()
     changed = [
-        {"id": r["id"], "question": r["question"]}
+        {"id": r["id"], "question": r["question"], "embed_text": r["embed_text"]}
         for r in rows
-        if r["question_hash"] != _question_hash(r["question"])
+        if r["question_hash"] != _question_hash(r["embed_text"] or r["question"])
     ]
 
     to_embed = new_markets + changed
@@ -143,17 +147,19 @@ async def embed_new_markets(db) -> int:
     total_embedded = 0
     for batch_start in range(0, len(to_embed), EMBED_BATCH_SIZE):
         batch = to_embed[batch_start : batch_start + EMBED_BATCH_SIZE]
-        questions = [r["question"] for r in batch]
+        # Use enriched embed_text, fall back to question for any empty rows
+        texts = [r["embed_text"] or r["question"] for r in batch]
 
         try:
-            vectors = await _call_openai_embed(questions)
+            vectors = await _call_openai_embed(texts)
         except RuntimeError as exc:
             logger.error("Embedding batch failed: %s", exc)
             break
 
         for row, vec in zip(batch, vectors):
             blob = _serialize_embedding(vec)
-            q_hash = _question_hash(row["question"])
+            embed_str = row["embed_text"] or row["question"]
+            q_hash = _question_hash(embed_str)
             await db.execute(
                 """INSERT INTO market_embeddings (market_id, embedding, question_hash, created_at)
                    VALUES (?, ?, ?, ?)
@@ -250,4 +256,3 @@ async def find_embedding_candidates(db, threshold: float = _SIMILARITY_THRESHOLD
         len(candidates), len(poly_ids), len(kalshi_ids), threshold,
     )
     return candidates
-
