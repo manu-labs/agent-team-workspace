@@ -117,10 +117,9 @@ def _normalize(raw: dict, series_categories: dict[str, str]) -> NormalizedMarket
             except (ValueError, AttributeError):
                 pass
 
-        # URL — Kalshi API doesn't expose a front-end URL or slug. Their site uses
-        # kalshi.com/markets/{series_ticker}/{slug} but the slug isn't in the API.
-        # Use search fallback which always works and takes the user directly to the market.
-        url = f"https://kalshi.com/browse?q={quote(title)}"
+        # URL — Kalshi API doesn't expose a front-end URL or slug. Use search
+        # with order_by=querymatch for best results (per Supreme Leader).
+        url = f"https://kalshi.com/search?q={quote(title)}&order_by=querymatch"
 
         return NormalizedMarket(
             id=f"{_PLATFORM}:{ticker}",
