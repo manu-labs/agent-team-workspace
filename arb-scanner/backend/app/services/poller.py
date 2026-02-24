@@ -1,10 +1,11 @@
 """Background poller — two-loop architecture:
 
   • Discovery loop  (every DISCOVERY_INTERVAL_SECONDS, default 1 hr):
-      full ingest → embed new → match new pairs → upsert matches
+      full ingest → embed new → match new pairs → upsert matches → sync WS subscriptions
 
-  • Price-refresh loop  (every PRICE_REFRESH_INTERVAL_SECONDS, default 10 s):
-      fetch current prices for matched markets only → update spreads + snapshots
+  • Price-refresh loop  (every PRICE_REFRESH_INTERVAL_SECONDS, default 15 s):
+      Fallback REST polling — only active when BOTH WebSocket connections are down.
+      When WS is connected, real-time updates arrive via ws_manager callbacks instead.
 """
 
 import asyncio
@@ -13,6 +14,7 @@ from datetime import datetime, timezone
 
 from app.config import settings
 from app.database import get_db
+from app.services import ws_manager
 from app.services.calculator import calculate_spread
 from app.services.embeddings import embed_new_markets
 from app.services.kalshi import ingest_kalshi
@@ -33,13 +35,13 @@ _last_refresh: dict | None = None
 
 
 async def start() -> None:
-    """Start the discovery loop and price-refresh loop as asyncio tasks."""
+    """Start the discovery loop and price-refresh fallback loop as asyncio tasks."""
     global _stop_event, _discovery_task, _refresh_task
     _stop_event = asyncio.Event()
     _discovery_task = asyncio.create_task(_discovery_loop(), name="discovery-loop")
     _refresh_task = asyncio.create_task(_price_refresh_loop(), name="price-refresh-loop")
     logger.info(
-        "Poller started — discovery every %ds, price refresh every %ds",
+        "Poller started — discovery every %ds, REST price refresh fallback every %ds",
         settings.DISCOVERY_INTERVAL_SECONDS,
         settings.PRICE_REFRESH_INTERVAL_SECONDS,
     )
@@ -73,7 +75,7 @@ async def trigger_now() -> dict:
 
 
 async def get_status() -> dict:
-    """Return current poller status and last run metrics."""
+    """Return current poller status, last run metrics, and WS connection state."""
     discovery_running = _discovery_task is not None and not _discovery_task.done()
     refresh_running = _refresh_task is not None and not _refresh_task.done()
     return {
@@ -83,13 +85,15 @@ async def get_status() -> dict:
         "last_refresh": _last_refresh,
         "discovery_interval_seconds": settings.DISCOVERY_INTERVAL_SECONDS,
         "price_refresh_interval_seconds": settings.PRICE_REFRESH_INTERVAL_SECONDS,
+        "ws": ws_manager.get_ws_status(),
     }
 
 
 async def _discovery_loop() -> None:
     """Discovery loop — runs until stop() is called.
 
-    Fires every DISCOVERY_INTERVAL_SECONDS: full ingest, embed, and match.
+    Fires every DISCOVERY_INTERVAL_SECONDS: full ingest, embed, match,
+    diff cleanup, and WS subscription sync.
     """
     while not _stop_event.is_set():
         try:
@@ -109,15 +113,18 @@ async def _discovery_loop() -> None:
 
 
 async def _price_refresh_loop() -> None:
-    """Price-refresh loop — runs until stop() is called.
+    """REST price-refresh fallback loop — runs until stop() is called.
 
-    Fires every PRICE_REFRESH_INTERVAL_SECONDS: fetches live prices for matched
-    markets only (typically ~50-100 markets), updates spreads, and records snapshots.
-    Starts after a short initial delay to let the first discovery cycle populate matches.
+    Only polls REST endpoints when BOTH WebSocket connections are down.
+    When ws_manager.both_connected() is True, real-time WS callbacks handle
+    price updates and this loop idles to avoid redundant API calls.
+
+    Starts after a short initial delay to let the first discovery cycle and
+    WS connections establish.
     """
     global _last_refresh
 
-    # Short initial delay so the first discovery cycle can run first
+    # Short initial delay so the discovery cycle and WS can start first
     try:
         await asyncio.wait_for(
             asyncio.shield(_stop_event.wait()),
@@ -128,15 +135,20 @@ async def _price_refresh_loop() -> None:
         pass
 
     while not _stop_event.is_set():
-        try:
-            db = await get_db()
-            result = await refresh_prices(db)
-            _last_refresh = {
-                "at": datetime.now(timezone.utc).isoformat(),
-                **result,
-            }
-        except Exception as exc:
-            logger.error("Price refresh failed unexpectedly: %s", exc, exc_info=True)
+        if ws_manager.both_connected():
+            # WS is handling real-time updates — skip REST polling this cycle
+            logger.debug("Price refresh skipped — WS connected, real-time updates active")
+        else:
+            try:
+                db = await get_db()
+                result = await refresh_prices(db)
+                _last_refresh = {
+                    "at": datetime.now(timezone.utc).isoformat(),
+                    "source": "rest_fallback",
+                    **result,
+                }
+            except Exception as exc:
+                logger.error("Price refresh failed unexpectedly: %s", exc, exc_info=True)
 
         try:
             await asyncio.wait_for(
@@ -156,8 +168,7 @@ async def _run_cycle() -> None:
       1.5. Diff-based cleanup — remove markets/matches no longer returned by either API
       2. Embed new/changed markets (delta embed — skips already-embedded)
       3. Run matcher on all pairs (skips already-confirmed pairs)
-
-    Spread updates and price history snapshots are handled by the price-refresh loop.
+      4. Sync WS subscriptions — subscribe new matches, unsubscribe removed ones
     """
     global _last_run
 
@@ -174,7 +185,9 @@ async def _run_cycle() -> None:
         new_markets = poly_result.get("upserted", 0) + kalshi_result.get("upserted", 0)
         logger.info(
             "Ingest: Polymarket=%s, Kalshi=%s, new/updated=%d",
-            poly_result, kalshi_result, new_markets,
+            {k: v for k, v in poly_result.items() if k != "market_ids"},
+            {k: v for k, v in kalshi_result.items() if k != "market_ids"},
+            new_markets,
         )
 
         # --- Step 1.5: Diff-based cleanup ---
@@ -284,6 +297,14 @@ async def _run_cycle() -> None:
         logger.info("Matcher: %s", match_result)
 
         await db.commit()
+
+        # --- Step 4: Sync WS subscriptions ---
+        # Subscribe to any newly confirmed match tokens, unsubscribe from removed ones.
+        # This is a no-op if ws_manager hasn't started yet (startup ordering).
+        try:
+            await ws_manager.sync_subscriptions()
+        except Exception as exc:
+            logger.warning("WS subscription sync failed: %s", exc)
 
         elapsed = (datetime.now(timezone.utc) - started_at).total_seconds()
         _last_run = {
