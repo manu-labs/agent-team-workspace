@@ -51,7 +51,7 @@ export default function PlatformCard({
           rel="noopener noreferrer"
           className="font-mono text-[10px] uppercase tracking-wider text-accent transition-colors hover:underline"
         >
-          Open \u2197
+          {"Open \u2197"}
         </a>
       </div>
 
