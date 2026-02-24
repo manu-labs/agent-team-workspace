@@ -102,7 +102,11 @@ def _market_to_dict(market) -> dict:
 
 
 async def _pass2_confirm(candidate: dict, markets_by_id: dict) -> dict | None:
-    """Pass 2: Confirm a candidate pair using full market details."""
+    """Pass 2: Confirm a candidate pair using full market details.
+
+    Also checks YES/NO orientation — if one platform's YES corresponds to
+    the other's NO, the match is flagged as inverted and kalshi_yes is flipped.
+    """
     poly_id = candidate.get("poly_id", "")
     kalshi_id = candidate.get("kalshi_id", "")
     confidence = float(candidate.get("confidence", 0))
@@ -115,7 +119,7 @@ async def _pass2_confirm(candidate: dict, markets_by_id: dict) -> dict | None:
     if not poly or not kalshi:
         return None
 
-    prompt = f"""Confirm whether these two prediction markets are asking the SAME question:
+    prompt = f"""Confirm whether these two prediction markets are asking the SAME question AND check their YES/NO orientation:
 
 Polymarket:
   ID: {poly_id}
@@ -127,10 +131,18 @@ Kalshi:
   Question: {kalshi.get('question', '')}
   Category: {kalshi.get('category', '')}
 
-Are these the same market? Would they resolve the same way?
-Return JSON: {{"confirmed": true/false, "reasoning": "...", "differences": "any resolution differences"}}
+Answer two things:
+1. Are these the same market (same event, same resolution criteria)?
+2. Does "YES" on Polymarket resolve the SAME WAY as "YES" on Kalshi?
+   For example: if Poly asks "Will X happen?" and Kalshi asks "Will X NOT happen?",
+   then YES is INVERTED (YES on one = NO on the other).
+
+Return JSON only:
+{{"confirmed": true/false, "inverted": true/false, "reasoning": "brief explanation"}}
+- confirmed: true if they cover the same event with matching resolution criteria
+- inverted: true if YES on one platform means NO on the other (opposite framing)
 """
-    system = "You are a prediction market analyst. Confirm or reject market matches. Return valid JSON only."
+    system = "You are a prediction market analyst. Confirm or reject market matches and check YES/NO orientation. Return valid JSON only."
 
     response = await _call_groq(prompt, system)
     if not response:
@@ -156,13 +168,34 @@ Return JSON: {{"confirmed": true/false, "reasoning": "...", "differences": "any 
             return None
 
     if result.get("confirmed"):
+        poly_yes = poly.get("yes_price", 0)
+        kalshi_yes = kalshi.get("yes_price", 0)
+
+        # If the LLM detected inverted framing, flip the Kalshi price
+        if result.get("inverted"):
+            logger.info(
+                "Inverted match detected: %s <-> %s — flipping Kalshi YES (%.2f -> %.2f). Reason: %s",
+                poly_id, kalshi_id, kalshi_yes, 1 - kalshi_yes,
+                result.get("reasoning", ""),
+            )
+            kalshi_yes = round(1 - kalshi_yes, 4)
+
+        # Safety net: if poly_yes + kalshi_yes is still close to 1.0 after
+        # any LLM-directed flip, warn about possible missed inversion
+        total = poly_yes + kalshi_yes
+        if abs(total - 1.0) < 0.10:
+            logger.warning(
+                "SUSPICIOUS after confirmation: poly_yes (%.2f) + kalshi_yes (%.2f) = %.2f for: %s",
+                poly_yes, kalshi_yes, total, poly.get("question", ""),
+            )
+
         return {
             "polymarket_id": poly_id,
             "kalshi_id": kalshi_id,
             "confidence": confidence,
             "question": poly.get("question", ""),
-            "polymarket_yes": poly.get("yes_price", 0),
-            "kalshi_yes": kalshi.get("yes_price", 0),
+            "polymarket_yes": poly_yes,
+            "kalshi_yes": kalshi_yes,
         }
     return None
 
