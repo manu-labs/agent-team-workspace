@@ -153,6 +153,7 @@ async def _run_cycle() -> None:
 
     Steps:
       1. Ingest markets from Polymarket and Kalshi
+      1.5. Diff-based cleanup — remove markets/matches no longer returned by either API
       2. Embed new/changed markets (delta embed — skips already-embedded)
       3. Run matcher on all pairs (skips already-confirmed pairs)
 
@@ -175,6 +176,64 @@ async def _run_cycle() -> None:
             "Ingest: Polymarket=%s, Kalshi=%s, new/updated=%d",
             poly_result, kalshi_result, new_markets,
         )
+
+        # --- Step 1.5: Diff-based cleanup ---
+        # Remove markets and their associated matches/history that are no longer
+        # returned by either API (e.g. closed, delisted, or expired markets).
+        # Safety guard: skip if either platform returned 0 markets to avoid
+        # accidentally wiping the entire DB on a transient API failure.
+        poly_ids = poly_result.get("market_ids", [])
+        kalshi_ids = kalshi_result.get("market_ids", [])
+        poly_fetched = poly_result.get("fetched", 0)
+        kalshi_fetched = kalshi_result.get("fetched", 0)
+
+        if poly_fetched > 0 and kalshi_fetched > 0 and poly_ids and kalshi_ids:
+            all_active_ids = poly_ids + kalshi_ids
+            poly_ph = ",".join("?" * len(poly_ids))
+            kalshi_ph = ",".join("?" * len(kalshi_ids))
+            all_ph = ",".join("?" * len(all_active_ids))
+
+            # 1. Delete price history for matches linked to stale markets (FK constraint)
+            await db.execute(
+                f"""DELETE FROM price_history WHERE match_id IN (
+                    SELECT id FROM matches
+                    WHERE polymarket_id NOT IN ({poly_ph})
+                       OR kalshi_id NOT IN ({kalshi_ph})
+                )""",
+                poly_ids + kalshi_ids,
+            )
+
+            # 2. Delete stale matches
+            await db.execute(
+                f"""DELETE FROM matches
+                    WHERE polymarket_id NOT IN ({poly_ph})
+                       OR kalshi_id NOT IN ({kalshi_ph})""",
+                poly_ids + kalshi_ids,
+            )
+
+            # 3. Delete orphaned embeddings (FK constraint — must precede markets delete)
+            await db.execute(
+                f"DELETE FROM market_embeddings WHERE market_id NOT IN ({all_ph})",
+                all_active_ids,
+            )
+
+            # 4. Delete stale markets
+            await db.execute(
+                f"DELETE FROM markets WHERE id NOT IN ({all_ph})",
+                all_active_ids,
+            )
+
+            await db.commit()
+            logger.info(
+                "Diff cleanup complete — active: %d poly + %d kalshi = %d total markets",
+                len(poly_ids), len(kalshi_ids), len(all_active_ids),
+            )
+        else:
+            logger.warning(
+                "Skipping diff cleanup — safety guard triggered "
+                "(poly_fetched=%d, kalshi_fetched=%d)",
+                poly_fetched, kalshi_fetched,
+            )
 
         # --- Step 2: Embed new/changed markets ---
         embed_count = await embed_new_markets(db)
@@ -236,4 +295,3 @@ async def _run_cycle() -> None:
             "match_result": match_result,
         }
         logger.info("Discovery cycle complete in %.1fs", elapsed)
-
