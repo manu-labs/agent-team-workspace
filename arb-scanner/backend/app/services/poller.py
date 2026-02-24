@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from app.config import settings
 from app.database import get_db
 from app.services.calculator import calculate_spread
+from app.services.embeddings import embed_new_markets
 from app.services.kalshi import ingest_kalshi
 from app.services.matcher import match_markets
 from app.services.polymarket import ingest_polymarket
@@ -105,9 +106,10 @@ async def _run_cycle(last_match_time: datetime) -> datetime:
 
     Steps:
       1. Ingest markets from Polymarket and Kalshi
-      2. Run LLM matcher if match interval elapsed or new markets appeared
-      3. Refresh spreads for all existing matches with current prices
-      4. Record price history snapshots for all active matches
+      2. Embed new/changed markets (delta embed)
+      3. Run LLM matcher if match interval elapsed or new markets appeared
+      4. Refresh spreads for all existing matches with current prices
+      5. Record price history snapshots for all active matches
 
     Returns updated last_match_time.
     """
@@ -129,7 +131,11 @@ async def _run_cycle(last_match_time: datetime) -> datetime:
             poly_result, kalshi_result, new_markets,
         )
 
-        # --- Step 2: Matching (throttled by interval or triggered by new markets) ---
+        # --- Step 2: Embed new/changed markets ---
+        embed_count = await embed_new_markets(db)
+        logger.info("Embed delta: %d markets embedded", embed_count)
+
+        # --- Step 3: Matching (throttled by interval or triggered by new markets) ---
         now = datetime.now(timezone.utc)
         seconds_since_match = (now - last_match_time).total_seconds()
         should_match = (
@@ -139,16 +145,18 @@ async def _run_cycle(last_match_time: datetime) -> datetime:
 
         match_result: dict = {}
         if should_match:
-            # Fetch markets from DB for matching
+            # Fetch active markets from DB for matching
             poly_cur = await db.execute(
                 "SELECT id, question, category, yes_price, no_price, volume, url "
                 "FROM markets WHERE platform = 'polymarket'"
+                "  AND volume > 0 AND yes_price BETWEEN 0.02 AND 0.98"
             )
             poly_markets = [dict(r) for r in await poly_cur.fetchall()]
 
             kalshi_cur = await db.execute(
                 "SELECT id, question, category, yes_price, no_price, volume, url "
                 "FROM markets WHERE platform = 'kalshi'"
+                "  AND volume > 0 AND yes_price BETWEEN 0.02 AND 0.98"
             )
             kalshi_markets = [dict(r) for r in await kalshi_cur.fetchall()]
 
@@ -184,10 +192,10 @@ async def _run_cycle(last_match_time: datetime) -> datetime:
                 int(seconds_since_match), settings.MATCH_INTERVAL_SECONDS,
             )
 
-        # --- Step 3: Refresh spreads for all existing matches ---
+        # --- Step 4: Refresh spreads for all existing matches ---
         spreads_updated = await _update_spreads(db)
 
-        # --- Step 4: Record price history snapshots ---
+        # --- Step 5: Record price history snapshots ---
         snapshots = await _record_snapshots(db)
 
         await db.commit()
@@ -198,6 +206,7 @@ async def _run_cycle(last_match_time: datetime) -> datetime:
             "elapsed_seconds": round(elapsed, 2),
             "polymarket": poly_result,
             "kalshi": kalshi_result,
+            "embed_count": embed_count,
             "match_result": match_result,
             "spreads_updated": spreads_updated,
             "snapshots_recorded": snapshots,

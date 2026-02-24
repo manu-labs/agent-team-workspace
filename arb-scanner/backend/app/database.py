@@ -62,11 +62,20 @@ async def init_db():
             FOREIGN KEY (match_id) REFERENCES matches(id)
         );
 
+        CREATE TABLE IF NOT EXISTS market_embeddings (
+            market_id TEXT PRIMARY KEY,
+            embedding BLOB NOT NULL,
+            question_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (market_id) REFERENCES markets(id)
+        );
+
         CREATE INDEX IF NOT EXISTS idx_markets_platform ON markets(platform);
         CREATE INDEX IF NOT EXISTS idx_markets_category ON markets(category);
         CREATE INDEX IF NOT EXISTS idx_markets_volume ON markets(volume);
         CREATE INDEX IF NOT EXISTS idx_price_history_match ON price_history(match_id);
         CREATE INDEX IF NOT EXISTS idx_price_history_time ON price_history(recorded_at);
+        CREATE INDEX IF NOT EXISTS idx_embeddings_market ON market_embeddings(market_id);
     """)
     await db.commit()
 
