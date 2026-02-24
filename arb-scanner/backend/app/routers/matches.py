@@ -32,6 +32,8 @@ def _serialize_match(row: dict) -> dict:
         "fee_adjusted_spread": row.get("fee_adjusted_spread") or 0,
         "direction": spread_info["direction"],
         "volume": min(row.get("polymarket_volume") or 0, row.get("kalshi_volume") or 0),
+        "poly_volume": row.get("polymarket_volume") or 0,
+        "kalshi_volume": row.get("kalshi_volume") or 0,
         "end_date": row.get("polymarket_end_date") or row.get("kalshi_end_date") or "",
         "poly_url": row.get("polymarket_url") or "",
         "kalshi_url": row.get("kalshi_url") or "",
