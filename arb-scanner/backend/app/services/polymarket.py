@@ -148,6 +148,7 @@ async def fetch_polymarket_markets() -> list[NormalizedMarket]:
     """Fetch all active Polymarket markets from the Gamma API with offset pagination."""
     markets: list[NormalizedMarket] = []
     filtered = 0
+    multi_outcome_skipped = 0
     offset = 0
 
     async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
@@ -157,6 +158,15 @@ async def fetch_polymarket_markets() -> list[NormalizedMarket]:
                 break
 
             for raw in raw_markets:
+                # Skip multi-outcome sub-markets — groupItemTitle is populated when this
+                # market is one outcome within a group event (e.g. "Which artists will
+                # release an album in 2026?"). These markets price each outcome as a
+                # fraction of the probability pool and are incompatible with Kalshi's
+                # binary yes/no prices, producing fake 30-60c spreads.
+                if raw.get("groupItemTitle"):
+                    multi_outcome_skipped += 1
+                    continue
+
                 market = _normalize(raw)
                 if market:
                     if market.volume > 0:
@@ -171,8 +181,8 @@ async def fetch_polymarket_markets() -> list[NormalizedMarket]:
             offset += _PAGE_SIZE
 
     logger.info(
-        "Polymarket: fetched %d active markets (%d zero-volume filtered)",
-        len(markets), filtered,
+        "Polymarket: fetched %d active markets (%d zero-volume filtered, %d multi-outcome skipped)",
+        len(markets), filtered, multi_outcome_skipped,
     )
     return markets
 
