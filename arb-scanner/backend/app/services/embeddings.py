@@ -23,7 +23,7 @@ OPENAI_EMBED_URL = "https://api.openai.com/v1/embeddings"
 EMBED_MODEL = "text-embedding-3-small"
 EMBED_DIMS = 512
 EMBED_BATCH_SIZE = 2048
-_SIMILARITY_THRESHOLD = 0.85
+_SIMILARITY_THRESHOLD = 0.75
 _RETRIES = 3
 
 # Active market filter used consistently across embed and candidate queries
@@ -250,3 +250,4 @@ async def find_embedding_candidates(db, threshold: float = _SIMILARITY_THRESHOLD
         len(candidates), len(poly_ids), len(kalshi_ids), threshold,
     )
     return candidates
+
