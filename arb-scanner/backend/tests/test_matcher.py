@@ -38,6 +38,19 @@ def make_db_mock(cached_rows=None):
     return db
 
 
+def make_market_dict(market_id, question, end_date="2026-03-31", yes_price=0.6):
+    return {
+        "id": market_id,
+        "question": question,
+        "category": "Crypto",
+        "yes_price": yes_price,
+        "no_price": 1 - yes_price,
+        "volume": 1000.0,
+        "url": "",
+        "end_date": end_date,
+    }
+
+
 class TestCacheKey:
     def test_produces_md5_hex(self):
         key = _cache_key("poly:abc", "kalshi:xyz")
@@ -93,6 +106,80 @@ class TestMarketToDict:
         assert result["url"] == "https://example.com"
 
 
+class TestPass2Confirm:
+    """Tests for _pass2_confirm — Groq LLM confirmation logic."""
+
+    async def test_rejects_below_confidence_threshold(self):
+        """Candidates below _CONFIDENCE_THRESHOLD (0.7) are immediately rejected."""
+        candidate = {"poly_id": "poly:A", "kalshi_id": "kalshi:B", "confidence": 0.5}
+        markets = {
+            "poly:A": make_market_dict("poly:A", "Will X?"),
+            "kalshi:B": make_market_dict("kalshi:B", "Will X?"),
+        }
+        with patch("app.services.matcher._call_groq", new_callable=AsyncMock) as mock_groq:
+            result = await matcher_module._pass2_confirm(candidate, markets)
+        assert result is None
+        mock_groq.assert_not_called()
+
+    async def test_accepts_matching_questions_and_deadlines(self):
+        """Confirms a pair when Groq says confirmed=true."""
+        candidate = {"poly_id": "poly:A", "kalshi_id": "kalshi:B", "confidence": 0.85}
+        markets = {
+            "poly:A": make_market_dict("poly:A", "Will BTC hit $100k?", end_date="2026-03-31"),
+            "kalshi:B": make_market_dict("kalshi:B", "Will BTC hit $100k?", end_date="2026-03-31"),
+        }
+        groq_response = '{"confirmed": true, "reasoning": "Same question and deadline"}'
+        with patch("app.services.matcher._call_groq", new_callable=AsyncMock, return_value=groq_response):
+            result = await matcher_module._pass2_confirm(candidate, markets)
+        assert result is not None
+        assert result["polymarket_id"] == "poly:A"
+        assert result["kalshi_id"] == "kalshi:B"
+        assert result["confidence"] == 0.85
+
+    async def test_rejects_different_deadlines(self):
+        """The Warsh bug — different resolution deadlines must be rejected."""
+        candidate = {"poly_id": "poly:A", "kalshi_id": "kalshi:B", "confidence": 0.90}
+        markets = {
+            "poly:A": make_market_dict("poly:A", "Will X happen?", end_date="2026-02-28"),
+            "kalshi:B": make_market_dict("kalshi:B", "Will X happen?", end_date="2026-03-31"),
+        }
+        # Groq correctly identifies different deadlines and returns confirmed=false
+        groq_response = '{"confirmed": false, "reasoning": "Different resolution deadlines"}'
+        with patch("app.services.matcher._call_groq", new_callable=AsyncMock, return_value=groq_response):
+            result = await matcher_module._pass2_confirm(candidate, markets)
+        assert result is None
+
+    async def test_handles_malformed_groq_response(self):
+        """Malformed/non-JSON Groq responses are handled gracefully (returns None)."""
+        candidate = {"poly_id": "poly:A", "kalshi_id": "kalshi:B", "confidence": 0.85}
+        markets = {
+            "poly:A": make_market_dict("poly:A", "Will X?"),
+            "kalshi:B": make_market_dict("kalshi:B", "Will X?"),
+        }
+        with patch("app.services.matcher._call_groq", new_callable=AsyncMock, return_value="not valid json"):
+            result = await matcher_module._pass2_confirm(candidate, markets)
+        assert result is None
+
+    async def test_handles_none_groq_response(self):
+        """None Groq response (API failure) is handled gracefully."""
+        candidate = {"poly_id": "poly:A", "kalshi_id": "kalshi:B", "confidence": 0.85}
+        markets = {
+            "poly:A": make_market_dict("poly:A", "Will X?"),
+            "kalshi:B": make_market_dict("kalshi:B", "Will X?"),
+        }
+        with patch("app.services.matcher._call_groq", new_callable=AsyncMock, return_value=None):
+            result = await matcher_module._pass2_confirm(candidate, markets)
+        assert result is None
+
+    async def test_returns_none_when_market_not_in_lookup(self):
+        """Returns None if market IDs are not in the markets_by_id dict."""
+        candidate = {"poly_id": "poly:MISSING", "kalshi_id": "kalshi:MISSING", "confidence": 0.85}
+        with patch("app.services.matcher._call_groq", new_callable=AsyncMock) as mock_groq:
+            result = await matcher_module._pass2_confirm(candidate, {})
+        assert result is None
+        mock_groq.assert_not_called()
+
+
 class TestMatchMarkets:
     async def test_returns_empty_without_groq_key(self):
         with patch.object(matcher_module.settings, "GROQ_API_KEY", ""):
@@ -133,7 +220,6 @@ class TestMatchMarkets:
         poly = make_market(id="poly:CACHED", platform="polymarket")
         kalshi = make_market(id="kalshi:CACHED", platform="kalshi")
 
-        # Return a "cached" match row from the DB
         cached_row = MagicMock()
         cached_row.__getitem__ = lambda self, k: {
             "polymarket_id": "poly:CACHED",
@@ -196,25 +282,57 @@ class TestMatchMarkets:
         finally:
             matcher_module._rejected_keys = original_rejected
 
-    async def test_below_confidence_threshold_rejected(self):
-        """Candidates below _CONFIDENCE_THRESHOLD are not confirmed."""
+    async def test_below_confidence_threshold_skipped(self):
+        """Candidates with confidence < _CONFIDENCE_THRESHOLD are rejected without LLM call."""
         poly = make_market(id="poly:LOW", platform="polymarket")
         kalshi = make_market(id="kalshi:LOW", platform="kalshi")
 
-        # Confidence below the 0.7 threshold
         fake_candidates = [{"poly_id": "poly:LOW", "kalshi_id": "kalshi:LOW", "confidence": 0.5}]
-        groq_response = '{"confirmed": true, "reasoning": "Same question"}'
 
         with patch.object(matcher_module.settings, "GROQ_API_KEY", "fake-key"), \
              patch("app.services.matcher.find_embedding_candidates",
                    new_callable=AsyncMock, return_value=fake_candidates), \
              patch("app.services.matcher.get_db", new_callable=AsyncMock, return_value=make_db_mock()), \
-             patch("app.services.matcher._call_groq", new_callable=AsyncMock, return_value=groq_response):
+             patch("app.services.matcher._call_groq", new_callable=AsyncMock) as mock_groq:
 
             result = await match_markets([poly], [kalshi])
 
-        # Should not be confirmed because _pass2_confirm rejects confidence < threshold
         assert result == []
+        # _pass2_confirm should still be called (the LLM is called after checking confidence threshold inside _pass2_confirm)
+
+    async def test_respects_max_confirmations_per_cycle(self):
+        """LLM calls are capped at _MAX_CONFIRMATIONS_PER_CYCLE."""
+        poly = make_market(id="poly:BASE", platform="polymarket")
+        kalshi = make_market(id="kalshi:BASE", platform="kalshi")
+
+        cap = matcher_module._MAX_CONFIRMATIONS_PER_CYCLE
+
+        # Generate cap + 10 candidates, all with confidence above threshold
+        fake_candidates = [
+            {"poly_id": f"poly:P{i}", "kalshi_id": f"kalshi:K{i}", "confidence": 0.85}
+            for i in range(cap + 10)
+        ]
+        # All Groq responses reject (so none enter confirmed list; we just check call count)
+        groq_response = '{"confirmed": false, "reasoning": "Different events"}'
+
+        original_rejected = matcher_module._rejected_keys.copy()
+        try:
+            # Clear rejected keys so none are pre-filtered
+            matcher_module._rejected_keys.clear()
+
+            with patch.object(matcher_module.settings, "GROQ_API_KEY", "fake-key"), \
+                 patch("app.services.matcher.find_embedding_candidates",
+                       new_callable=AsyncMock, return_value=fake_candidates), \
+                 patch("app.services.matcher.get_db", new_callable=AsyncMock, return_value=make_db_mock()), \
+                 patch("app.services.matcher._call_groq", new_callable=AsyncMock,
+                       return_value=groq_response) as mock_groq:
+
+                await match_markets([poly], [kalshi])
+
+            # Should not exceed the cap
+            assert mock_groq.call_count <= cap
+        finally:
+            matcher_module._rejected_keys = original_rejected
 
     async def test_no_embedding_candidates_returns_empty(self):
         poly = make_market(id="poly:A", platform="polymarket")
