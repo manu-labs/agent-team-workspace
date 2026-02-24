@@ -1,10 +1,10 @@
 """Background poller — two-loop architecture:
 
-  • Discovery loop  (every DISCOVERY_INTERVAL_SECONDS, default 1 hr):
-      full ingest → embed new → match new pairs → upsert matches → sync WS subscriptions
+  * Discovery loop  (every DISCOVERY_INTERVAL_SECONDS, default 1 hr):
+      full ingest -> embed new -> match new pairs -> upsert matches -> sync WS subscriptions
 
-  • Price-refresh loop  (every PRICE_REFRESH_INTERVAL_SECONDS, default 15 s):
-      Fallback REST polling — only active when BOTH WebSocket connections are down.
+  * Price-refresh loop  (every PRICE_REFRESH_INTERVAL_SECONDS, default 15 s):
+      Fallback REST polling -- only active when BOTH WebSocket connections are down.
       When WS is connected, real-time updates arrive via ws_manager callbacks instead.
 """
 
@@ -255,18 +255,20 @@ async def _run_cycle() -> None:
         # --- Step 3: Match (always runs, skips already-confirmed pairs) ---
         now = datetime.now(timezone.utc)
 
-        # Fetch active markets from DB for matching
+        # Fetch active markets from DB for matching (includes end_date for
+        # Groq LLM confirmation prompt — prevents false matches on markets
+        # with similar questions but different resolution deadlines)
         poly_cur = await db.execute(
-            "SELECT id, question, category, yes_price, no_price, volume, url "
+            "SELECT id, question, category, yes_price, no_price, volume, url, end_date "
             "FROM markets WHERE platform = 'polymarket'"
-            "  AND volume > 0 AND yes_price BETWEEN 0.02 AND 0.98"
+            "  AND volume > 0 AND yes_price BETWEEN 0.01 AND 0.99"
         )
         poly_markets = [dict(r) for r in await poly_cur.fetchall()]
 
         kalshi_cur = await db.execute(
-            "SELECT id, question, category, yes_price, no_price, volume, url "
+            "SELECT id, question, category, yes_price, no_price, volume, url, end_date "
             "FROM markets WHERE platform = 'kalshi'"
-            "  AND volume > 0 AND yes_price BETWEEN 0.02 AND 0.98"
+            "  AND volume > 0 AND yes_price BETWEEN 0.01 AND 0.99"
         )
         kalshi_markets = [dict(r) for r in await kalshi_cur.fetchall()]
 
