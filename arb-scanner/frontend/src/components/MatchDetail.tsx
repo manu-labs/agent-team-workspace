@@ -50,10 +50,12 @@ export default function MatchDetail({ match }: MatchDetailProps) {
         </div>
         <div className="flex flex-col justify-center border-r border-terminal-border px-5 py-4">
           <p className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
-            Direction
+            Strategy
           </p>
           <p className="mt-1 font-mono text-sm font-medium text-accent">
-            {isBuyKalshi ? "Buy Kalshi / Sell Poly" : "Buy Poly / Sell Kalshi"}
+            {isBuyKalshi
+              ? "Buy YES on Kalshi + Buy NO on Poly"
+              : "Buy YES on Poly + Buy NO on Kalshi"}
           </p>
         </div>
         <div className="flex flex-col justify-center border-r border-terminal-border px-5 py-4">
@@ -94,7 +96,7 @@ export default function MatchDetail({ match }: MatchDetailProps) {
           no={match.poly_no}
           volume={match.volume}
           url={match.poly_url}
-          buyHere={isBuyKalshi === false}
+          buyAction={isBuyKalshi ? "NO" : "YES"}
         />
         <PlatformCard
           name="Kalshi"
@@ -102,7 +104,7 @@ export default function MatchDetail({ match }: MatchDetailProps) {
           no={match.kalshi_no}
           volume={match.volume}
           url={match.kalshi_url}
-          buyHere={isBuyKalshi}
+          buyAction={isBuyKalshi ? "YES" : "NO"}
         />
       </div>
 
