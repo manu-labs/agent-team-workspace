@@ -191,10 +191,12 @@ export default function MatchTable() {
   }, [matchIds]);
 
   // Client-side filtering + sorting
+  // Only apply spread filter when the user has explicitly set a minimum (slider > 0)
+  // This prevents rows from flashing in/out as WS prices cause spread to cross zero
   const minSpreadDecimal = minSpreadCents / 100;
   const visible = sortMatches(
     matches.filter((m) => {
-      if (m.fee_adjusted_spread < minSpreadDecimal) return false;
+      if (minSpreadCents > 0 && m.fee_adjusted_spread < minSpreadDecimal) return false;
       if (search && search.trim().length > 0) {
         return m.question.toLowerCase().includes(search.toLowerCase().trim());
       }
