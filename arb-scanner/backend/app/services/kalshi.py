@@ -265,16 +265,16 @@ async def fetch_kalshi_markets() -> list[NormalizedMarket]:
     return markets
 
 
-async def ingest_kalshi() -> dict[str, int]:
+async def ingest_kalshi() -> dict:
     """Fetch Kalshi markets and upsert into the database.
 
-    Returns: {"fetched": N, "upserted": N, "errors": N}
+    Returns: {"fetched": N, "upserted": N, "errors": N, "market_ids": [...]}
     """
     try:
         markets = await fetch_kalshi_markets()
     except Exception as exc:
         logger.error("Kalshi ingestion failed: %s", exc, exc_info=True)
-        return {"fetched": 0, "upserted": 0, "errors": 1}
+        return {"fetched": 0, "upserted": 0, "errors": 1, "market_ids": []}
 
     db = await get_db()
     upserted = 0
@@ -316,4 +316,4 @@ async def ingest_kalshi() -> dict[str, int]:
         "Kalshi ingest complete — fetched: %d, upserted: %d, errors: %d",
         len(markets), upserted, errors,
     )
-    return {"fetched": len(markets), "upserted": upserted, "errors": errors}
+    return {"fetched": len(markets), "upserted": upserted, "errors": errors, "market_ids": [m.id for m in markets]}
