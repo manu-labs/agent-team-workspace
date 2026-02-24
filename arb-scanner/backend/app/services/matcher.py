@@ -4,6 +4,7 @@ Uses httpx to call Groq API directly (the groq library has connection
 issues in Railway network -- same lesson from Auto-RSVP).
 
 Pass 1: Candidate discovery -- cosine similarity via OpenAI embeddings (zero LLM calls).
+Pass 1.5: Date pre-filter -- skip pairs with mismatched end_dates (zero LLM calls).
 Pass 2: Confirmation -- verify resolution criteria match for high-confidence candidates.
 
 Interface: match_markets(poly_markets, kalshi_markets) -> list[dict]
@@ -13,6 +14,7 @@ Called by the background poller which handles DB upsert.
 import hashlib
 import json
 import logging
+from datetime import datetime
 
 import httpx
 
@@ -28,6 +30,12 @@ _CONFIDENCE_THRESHOLD = 0.7
 _RETRIES = 3
 _MAX_CONFIRMATIONS_PER_CYCLE = 200
 
+# Maximum allowed difference in end_dates (seconds) for a candidate pair
+# to proceed to LLM confirmation. Pairs with dates further apart are
+# skipped instantly — no LLM call needed.
+# 24 hours covers timezone differences and same-day resolution windows.
+_DATE_TOLERANCE_SECONDS = 86400  # 24 hours
+
 # In-memory rejection cache — tracks pairs that Groq has already rejected.
 # Prevents re-evaluating the same rejected pairs every discovery cycle,
 # which previously burned all LLM calls on known-bad pairs.
@@ -38,6 +46,38 @@ _rejected_keys: set[str] = set()
 def _cache_key(poly_id: str, kalshi_id: str) -> str:
     raw = f"{poly_id}|{kalshi_id}"
     return hashlib.md5(raw.encode()).hexdigest()
+
+
+def _parse_date(value) -> datetime | None:
+    """Parse an end_date value (string or datetime) into a datetime, or None."""
+    if isinstance(value, datetime):
+        return value
+    if not value or value == "unknown":
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+
+
+def _dates_compatible(poly_end, kalshi_end) -> bool:
+    """Check if two end_dates are close enough to be the same market.
+
+    Returns True (compatible) if:
+    - Either date is missing/unparseable (let LLM decide)
+    - Both dates are within _DATE_TOLERANCE_SECONDS of each other
+
+    Returns False (incompatible) if dates differ by more than tolerance.
+    """
+    poly_dt = _parse_date(poly_end)
+    kalshi_dt = _parse_date(kalshi_end)
+
+    # If either date is missing, we can't pre-filter — let LLM decide
+    if poly_dt is None or kalshi_dt is None:
+        return True
+
+    diff = abs((poly_dt - kalshi_dt).total_seconds())
+    return diff <= _DATE_TOLERANCE_SECONDS
 
 
 async def _call_groq(prompt: str, system: str = "") -> str | None:
@@ -212,6 +252,7 @@ async def match_markets(
     """Run two-pass matching on the provided market lists.
 
     Pass 1: Embedding cosine similarity (zero LLM calls).
+    Pass 1.5: Date pre-filter — skip pairs with mismatched end_dates (zero LLM calls).
     Pass 2: Groq LLM confirmation (capped at _MAX_CONFIRMATIONS_PER_CYCLE).
 
     Args:
@@ -251,10 +292,12 @@ async def match_markets(
 
     logger.info("Pass 1 complete: %d embedding candidates", len(candidates))
 
-    # Pass 2: Confirmation (skip cached + rejected, cap at _MAX_CONFIRMATIONS_PER_CYCLE)
+    # Pass 2: Confirmation (skip cached + rejected + date-mismatched,
+    # cap LLM calls at _MAX_CONFIRMATIONS_PER_CYCLE)
     confirmed = []
     cached = 0
     rejected_skipped = 0
+    date_skipped = 0
     errors = 0
     llm_calls = 0
 
@@ -278,6 +321,16 @@ async def match_markets(
             rejected_skipped += 1
             continue
 
+        # Pass 1.5: Date pre-filter — skip pairs with clearly mismatched
+        # end_dates without burning an LLM call. Eliminates ~90% of crypto
+        # price bin false candidates (e.g. BTC Feb 26 17:00 vs Feb 27 22:00).
+        poly_market = all_markets.get(poly_id, {})
+        kalshi_market = all_markets.get(kalshi_id, {})
+        if not _dates_compatible(poly_market.get("end_date"), kalshi_market.get("end_date")):
+            date_skipped += 1
+            _rejected_keys.add(key)
+            continue
+
         try:
             result = await _pass2_confirm(cand, all_markets)
             llm_calls += 1
@@ -292,7 +345,8 @@ async def match_markets(
 
     logger.info(
         "Matching complete -- candidates: %d, llm_calls: %d, confirmed: %d, "
-        "cached_skipped: %d, rejected_skipped: %d, errors: %d",
-        len(candidates), llm_calls, len(confirmed), cached, rejected_skipped, errors,
+        "cached_skipped: %d, rejected_skipped: %d, date_skipped: %d, errors: %d",
+        len(candidates), llm_calls, len(confirmed), cached, rejected_skipped,
+        date_skipped, errors,
     )
     return confirmed
