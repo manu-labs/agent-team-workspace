@@ -26,7 +26,13 @@ GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = "llama-3.3-70b-versatile"
 _CONFIDENCE_THRESHOLD = 0.7
 _RETRIES = 3
-_MAX_CONFIRMATIONS_PER_CYCLE = 50
+_MAX_CONFIRMATIONS_PER_CYCLE = 200
+
+# In-memory rejection cache — tracks pairs that Groq has already rejected.
+# Prevents re-evaluating the same rejected pairs every discovery cycle,
+# which previously burned all LLM calls on known-bad pairs.
+# Resets on deploy/restart so pairs get a fresh look with any prompt changes.
+_rejected_keys: set[str] = set()
 
 
 def _cache_key(poly_id: str, kalshi_id: str) -> str:
@@ -98,6 +104,7 @@ def _market_to_dict(market) -> dict:
         "no_price": market.no_price,
         "volume": getattr(market, "volume", 0),
         "url": getattr(market, "url", ""),
+        "end_date": getattr(market, "end_date", ""),
     }
 
 
@@ -120,34 +127,43 @@ async def _pass2_confirm(candidate: dict, markets_by_id: dict) -> dict | None:
     if not poly or not kalshi:
         return None
 
-    prompt = f"""Determine whether these two prediction markets are asking the EXACT SAME question with the SAME YES/NO orientation:
+    poly_end = poly.get("end_date", "unknown")
+    kalshi_end = kalshi.get("end_date", "unknown")
+
+    prompt = f"""Determine whether these two prediction markets are asking the EXACT SAME question with the SAME YES/NO orientation AND the SAME resolution deadline:
 
 Polymarket:
   ID: {poly_id}
   Question: {poly.get('question', '')}
   Category: {poly.get('category', '')}
+  End date / Resolution deadline: {poly_end}
 
 Kalshi:
   ID: {kalshi_id}
   Question: {kalshi.get('question', '')}
   Category: {kalshi.get('category', '')}
+  End date / Resolution deadline: {kalshi_end}
 
-IMPORTANT: Both contracts must resolve YES under the same conditions and NO under the same conditions.
+IMPORTANT RULES:
+1. Both contracts must resolve YES under the same conditions and NO under the same conditions.
+2. CRITICAL: Resolution dates/deadlines MUST match. If one market resolves "by Feb 28" and the other "by Mar 31", they are DIFFERENT markets even if the question text is similar. Different deadlines = confirmed: false.
+3. If either end_date is missing or "unknown", and the question text contains a specific date/deadline, use that instead.
 
 Examples of SAME orientation (confirmed=true):
-  - Poly: "Will Team A win?" / Kalshi: "Will Team A win?" → same question, same YES
-  - Poly: "Bitcoin above $100K by March?" / Kalshi: "Bitcoin above $100K by March?" → same
+  - Poly: "Will Team A win?" / Kalshi: "Will Team A win?" (same deadline) → same question, same YES
+  - Poly: "Bitcoin above $100K by March 31?" / Kalshi: "Bitcoin above $100K by March 31?" → same
 
-Examples of OPPOSITE orientation (confirmed=false):
+Examples that should be REJECTED (confirmed=false):
   - Poly: "Will Player A win?" / Kalshi: "Will Player B win?" → opposite sides of same event
   - Poly: "Will X happen?" / Kalshi: "Will X NOT happen?" → inverted framing
+  - Poly: "Will X happen by Feb 28?" / Kalshi: "Will X happen by Mar 31?" → DIFFERENT deadlines
 
 Return JSON only:
 {{"confirmed": true/false, "reasoning": "brief explanation"}}
-- confirmed: true ONLY if both contracts ask the same question AND YES means the same thing on both
-- confirmed: false if they are opposite sides, inverted, or different events entirely
+- confirmed: true ONLY if both contracts ask the same question AND YES means the same thing on both AND they have the same resolution deadline
+- confirmed: false if they are opposite sides, inverted, different events, OR have different deadlines
 """
-    system = "You are a prediction market analyst. Confirm or reject market matches. Only confirm if both contracts have identical resolution criteria and YES/NO orientation. Return valid JSON only."
+    system = "You are a prediction market analyst. Confirm or reject market matches. Only confirm if both contracts have identical resolution criteria, YES/NO orientation, AND resolution deadline. Return valid JSON only."
 
     response = await _call_groq(prompt, system)
     if not response:
@@ -235,9 +251,10 @@ async def match_markets(
 
     logger.info("Pass 1 complete: %d embedding candidates", len(candidates))
 
-    # Pass 2: Confirmation (skip cached, cap at _MAX_CONFIRMATIONS_PER_CYCLE)
+    # Pass 2: Confirmation (skip cached + rejected, cap at _MAX_CONFIRMATIONS_PER_CYCLE)
     confirmed = []
     cached = 0
+    rejected_skipped = 0
     errors = 0
     llm_calls = 0
 
@@ -257,17 +274,25 @@ async def match_markets(
             cached += 1
             continue
 
+        if key in _rejected_keys:
+            rejected_skipped += 1
+            continue
+
         try:
             result = await _pass2_confirm(cand, all_markets)
             llm_calls += 1
             if result:
                 confirmed.append(result)
+            else:
+                # Add to rejection cache so we don't re-evaluate next cycle
+                _rejected_keys.add(key)
         except Exception as exc:
             logger.error("Error confirming %s <-> %s: %s", poly_id, kalshi_id, exc)
             errors += 1
 
     logger.info(
-        "Matching complete -- candidates: %d, llm_calls: %d, confirmed: %d, cached_skipped: %d, errors: %d",
-        len(candidates), llm_calls, len(confirmed), cached, errors,
+        "Matching complete -- candidates: %d, llm_calls: %d, confirmed: %d, "
+        "cached_skipped: %d, rejected_skipped: %d, errors: %d",
+        len(candidates), llm_calls, len(confirmed), cached, rejected_skipped, errors,
     )
     return confirmed

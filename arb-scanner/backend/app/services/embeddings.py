@@ -23,11 +23,13 @@ OPENAI_EMBED_URL = "https://api.openai.com/v1/embeddings"
 EMBED_MODEL = "text-embedding-3-small"
 EMBED_DIMS = 512
 EMBED_BATCH_SIZE = 2048
-_SIMILARITY_THRESHOLD = 0.75
+_SIMILARITY_THRESHOLD = 0.65
 _RETRIES = 3
 
-# Active market filter used consistently across embed and candidate queries
-_ACTIVE_MARKET_FILTER = "volume > 0 AND yes_price BETWEEN 0.02 AND 0.98"
+# Active market filter used consistently across embed and candidate queries.
+# Widened from 0.02-0.98 to 0.01-0.99 to avoid filtering out markets near
+# the extremes that may still have valid cross-platform matches.
+_ACTIVE_MARKET_FILTER = "volume > 0 AND yes_price BETWEEN 0.01 AND 0.99"
 
 
 def _question_hash(text: str) -> str:
@@ -104,7 +106,7 @@ async def embed_new_markets(db) -> int:
         """DELETE FROM market_embeddings
            WHERE market_id NOT IN (
                SELECT id FROM markets
-               WHERE volume > 0 AND yes_price BETWEEN 0.02 AND 0.98
+               WHERE volume > 0 AND yes_price BETWEEN 0.01 AND 0.99
            )"""
     )
 
@@ -115,7 +117,7 @@ async def embed_new_markets(db) -> int:
            LEFT JOIN market_embeddings me ON me.market_id = m.id
            WHERE me.market_id IS NULL
              AND m.volume > 0
-             AND m.yes_price BETWEEN 0.02 AND 0.98"""
+             AND m.yes_price BETWEEN 0.01 AND 0.99"""
     )
     new_markets = [dict(r) for r in await cursor.fetchall()]
 
@@ -125,7 +127,7 @@ async def embed_new_markets(db) -> int:
            FROM markets m
            JOIN market_embeddings me ON me.market_id = m.id
            WHERE m.volume > 0
-             AND m.yes_price BETWEEN 0.02 AND 0.98"""
+             AND m.yes_price BETWEEN 0.01 AND 0.99"""
     )
     rows = await cursor.fetchall()
     changed = [
@@ -191,7 +193,7 @@ async def find_embedding_candidates(db, threshold: float = _SIMILARITY_THRESHOLD
            FROM market_embeddings me
            JOIN markets m ON m.id = me.market_id
            WHERE m.platform = 'polymarket' AND m.volume > 0
-             AND m.yes_price BETWEEN 0.02 AND 0.98"""
+             AND m.yes_price BETWEEN 0.01 AND 0.99"""
     )
     poly_rows = await poly_cur.fetchall()
 
@@ -201,7 +203,7 @@ async def find_embedding_candidates(db, threshold: float = _SIMILARITY_THRESHOLD
            FROM market_embeddings me
            JOIN markets m ON m.id = me.market_id
            WHERE m.platform = 'kalshi' AND m.volume > 0
-             AND m.yes_price BETWEEN 0.02 AND 0.98"""
+             AND m.yes_price BETWEEN 0.01 AND 0.99"""
     )
     kalshi_rows = await kalshi_cur.fetchall()
 
