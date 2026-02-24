@@ -1,10 +1,12 @@
 import { useParams, Link } from "react-router-dom";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { getMatch } from "../lib/api";
+import { computeSpread } from "../lib/spread";
+import { useMatchPrices } from "../hooks/useMatchPrices";
 import type { Match } from "../lib/types";
 import MatchDetail from "../components/MatchDetail";
 
-const REFRESH_INTERVAL_MS = 5_000;
+const REFRESH_INTERVAL_MS = 30_000;
 
 export default function Detail() {
   const { id } = useParams<{ id: string }>();
@@ -38,11 +40,36 @@ export default function Detail() {
     return () => abortRef.current?.abort();
   }, [fetchMatch]);
 
-  // Auto-refresh every 5s
+  // Auto-refresh every 30s as fallback (WS handles real-time updates)
   useEffect(() => {
     const interval = setInterval(() => void fetchMatch(), REFRESH_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [fetchMatch]);
+
+  // Real-time WS price updates for this single match
+  const wsPrices = useMatchPrices(id ?? "");
+
+  // Merge latest WS prices into match, recomputing spread/direction
+  const liveMatch = useMemo(() => {
+    if (wsPrices === null || match === null) return match;
+    const { raw_spread, fee_adjusted_spread, direction } = computeSpread(
+      wsPrices.poly_yes,
+      wsPrices.poly_no,
+      wsPrices.kalshi_yes,
+      wsPrices.kalshi_no
+    );
+    return {
+      ...match,
+      poly_yes: wsPrices.poly_yes,
+      poly_no: wsPrices.poly_no,
+      kalshi_yes: wsPrices.kalshi_yes,
+      kalshi_no: wsPrices.kalshi_no,
+      raw_spread,
+      fee_adjusted_spread,
+      direction,
+      last_updated: wsPrices.last_updated,
+    };
+  }, [match, wsPrices]);
 
   if (loading) {
     return (
@@ -74,5 +101,5 @@ export default function Detail() {
     );
   }
 
-  return <MatchDetail match={match} />;
+  return <MatchDetail match={liveMatch ?? match} />;
 }
