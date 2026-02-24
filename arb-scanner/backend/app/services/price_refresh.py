@@ -203,7 +203,7 @@ async def _fetch_kalshi_price(client, semaphore, market_id: str, prices: dict) -
                 yes_price = max(0.0, min(1.0, float(yes_ask_raw or 0) / 100.0))
 
             # Read no_price from actual NO-side order book
-            # Use no_ask (price to buy NO) to match what Kalshi shows on their site
+            # Use no_ask (buy price) to match Kalshi's website and represent execution cost
             no_ask_raw = data.get("no_ask", 0)
             no_bid_raw = data.get("no_bid", 0)
 
