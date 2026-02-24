@@ -114,7 +114,13 @@ def _normalize(raw: dict) -> NormalizedMarket | None:
 
 async def _fetch_page(client: httpx.AsyncClient, offset: int) -> list[dict]:
     """Fetch a single page from the Gamma API with retry/backoff."""
-    params = {"active": "true", "closed": "false", "offset": offset, "limit": _PAGE_SIZE}
+    params = {
+        "active": "true",
+        "closed": "false",
+        "archived": "false",
+        "offset": offset,
+        "limit": _PAGE_SIZE,
+    }
     backoff = 1.0
 
     for attempt in range(_RETRIES):
