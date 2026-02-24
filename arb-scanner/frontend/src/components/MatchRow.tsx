@@ -47,7 +47,7 @@ function PlatformLink({
       className="inline-flex items-center gap-1 border border-terminal-border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-zinc-500 transition-colors hover:border-accent/50 hover:text-accent"
     >
       {shortLabel}
-      <span className="opacity-50">\u2197</span>
+      <span className="opacity-50">{"↗"}</span>
     </a>
   );
 }
