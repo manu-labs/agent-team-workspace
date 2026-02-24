@@ -91,6 +91,15 @@ function sortMatches(matches: Match[], key: SortKey): Match[] {
   });
 }
 
+// ── Volume filter presets ─────────────────────────────────────────────────────
+
+const VOLUME_PRESETS: { label: string; value: number }[] = [
+  { label: "Any", value: 0 },
+  { label: "$1K", value: 1_000 },
+  { label: "$10K", value: 10_000 },
+  { label: "$100K", value: 100_000 },
+];
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function MatchTable() {
@@ -102,7 +111,8 @@ export default function MatchTable() {
   // Filters
   const [search, setSearch] = useState("");
   const [minSpreadCents, setMinSpreadCents] = useState(0); // slider in cents
-  const [sortKey, setSortKey] = useState<SortKey>("spread");
+  const [minVolume, setMinVolume] = useState(0); // server-side volume filter
+  const [sortKey, setSortKey] = useState<SortKey>("volume"); // default: most liquid first
 
   const abortRef = useRef<AbortController | null>(null);
 
@@ -112,7 +122,8 @@ export default function MatchTable() {
     abortRef.current = ctrl;
 
     try {
-      const filters: MatchFilters = { sort: "spread", direction: "desc" };
+      const filters: MatchFilters = { sort: "volume", direction: "desc" };
+      if (minVolume > 0) filters.min_volume = minVolume;
       const data = await getMatches(filters);
       if (ctrl.signal.aborted) return;
       setMatches(data);
@@ -124,9 +135,9 @@ export default function MatchTable() {
     } finally {
       if (ctrl.signal.aborted === false) setLoading(false);
     }
-  }, []);
+  }, [minVolume]);
 
-  // Initial load
+  // Initial load + re-fetch when minVolume changes
   useEffect(() => {
     void fetchMatches();
     return () => abortRef.current?.abort();
@@ -150,6 +161,8 @@ export default function MatchTable() {
     }),
     sortKey
   );
+
+  const hasActiveFilters = search.length > 0 || minSpreadCents > 0 || minVolume > 0;
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -183,6 +196,27 @@ export default function MatchTable() {
           <span className="w-8 font-mono text-xs tabular-nums text-zinc-400">
             {minSpreadCents === 0 ? "any" : minSpreadCents.toFixed(1) + "\u00a2"}
           </span>
+        </div>
+
+        {/* Min volume presets */}
+        <div className="flex items-center gap-0.5">
+          <span className="mr-1 font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+            Vol
+          </span>
+          {VOLUME_PRESETS.map(({ label, value }) => (
+            <button
+              key={value}
+              onClick={() => setMinVolume(value)}
+              className={[
+                "px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider transition-colors",
+                minVolume === value
+                  ? "bg-terminal-muted text-zinc-100"
+                  : "text-zinc-500 hover:text-zinc-300",
+              ].join(" ")}
+            >
+              {label}
+            </button>
+          ))}
         </div>
 
         {/* Sort toggle */}
@@ -271,11 +305,12 @@ export default function MatchTable() {
                   <p className="font-mono text-xs uppercase tracking-wider text-zinc-600">
                     No arbitrage opportunities found
                   </p>
-                  {(search || minSpreadCents > 0) && (
+                  {hasActiveFilters && (
                     <button
                       onClick={() => {
                         setSearch("");
                         setMinSpreadCents(0);
+                        setMinVolume(0);
                       }}
                       className="mt-3 font-mono text-[10px] uppercase tracking-wider text-zinc-500 underline hover:text-zinc-300"
                     >
