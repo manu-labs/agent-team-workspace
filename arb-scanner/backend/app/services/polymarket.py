@@ -95,10 +95,14 @@ def _normalize(raw: dict) -> NormalizedMarket | None:
         slug = event_slug or raw.get("slug") or ""
         url = f"https://polymarket.com/event/{slug}" if slug else ""
 
-        # Build enriched embedding text — adds market description so similar
-        # questions with different resolution details get distinct embeddings.
+        # Build enriched embedding text — includes groupItemTitle to distinguish
+        # game-level sub-markets (e.g. "Game 1 Winner") from series-level
+        # markets ("Match Winner") in esports events.
         description = ((raw.get("description") or "")[:300]).strip()
+        group_title = (raw.get("groupItemTitle") or "").strip()
         parts = [question]
+        if group_title:
+            parts.append(f"Market type: {group_title}")
         if description:
             parts.append(description)
         embed_text = ". ".join(parts)
