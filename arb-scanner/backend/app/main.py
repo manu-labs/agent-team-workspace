@@ -7,12 +7,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import close_db, init_db
 from app.routers import markets, matches
+from app.routers.poll import router as poll_router
+from app.services import poller
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    await poller.start()
     yield
+    await poller.stop()
     await close_db()
 
 
@@ -34,6 +38,7 @@ app.add_middleware(
 
 app.include_router(markets.router, prefix="/api/v1")
 app.include_router(matches.router, prefix="/api/v1")
+app.include_router(poll_router, prefix="/api/v1")
 
 
 @app.get("/health")
