@@ -13,6 +13,7 @@ export default function Dashboard() {
             Sorted by fee-adjusted spread &middot; Auto-refreshes every 30s
           </p>
         </div>
+        {/* Live indicator */}
         <div className="flex items-center gap-2">
           <span className="relative flex h-2 w-2">
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-profit opacity-50" />
