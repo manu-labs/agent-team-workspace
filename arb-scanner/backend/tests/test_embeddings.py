@@ -6,11 +6,18 @@ import pytest
 
 from app.services.embeddings import (
     EMBED_DIMS,
+    _SIMILARITY_THRESHOLD,
     _deserialize_embedding,
     _question_hash,
     _serialize_embedding,
     find_embedding_candidates,
 )
+
+
+class TestConstants:
+    def test_similarity_threshold_is_0_65(self):
+        """Confirm threshold is 0.65 (not the old 0.75 value)."""
+        assert _SIMILARITY_THRESHOLD == 0.65
 
 
 class TestQuestionHash:
