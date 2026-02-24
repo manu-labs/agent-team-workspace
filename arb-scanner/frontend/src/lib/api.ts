@@ -34,18 +34,56 @@ async function request<T>(path: string, params?: Record<string, string>): Promis
   return res.json();
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function transformMatch(raw: any): Match {
+  return {
+    id: String(raw.id),
+    question: raw.question,
+    poly_yes: raw.polymarket_yes,
+    poly_no: 1 - raw.polymarket_yes,
+    kalshi_yes: raw.kalshi_yes,
+    kalshi_no: 1 - raw.kalshi_yes,
+    raw_spread: raw.spread,
+    fee_adjusted_spread: raw.fee_adjusted_spread,
+    direction: raw.direction,
+    volume: Math.min(raw.polymarket_volume || 0, raw.kalshi_volume || 0),
+    end_date: raw.polymarket_end_date || raw.kalshi_end_date || "",
+    poly_url: raw.polymarket_url || "",
+    kalshi_url: raw.kalshi_url || "",
+    confidence: raw.confidence,
+    last_updated: raw.last_updated,
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function transformSnapshot(raw: any): PriceSnapshot {
+  const polyYes = raw.polymarket_yes ?? raw.poly_yes ?? 0;
+  const kalshiYes = raw.kalshi_yes ?? 0;
+  return {
+    timestamp: raw.recorded_at || raw.timestamp || "",
+    poly_yes: polyYes,
+    poly_no: raw.poly_no ?? 1 - polyYes,
+    kalshi_yes: kalshiYes,
+    kalshi_no: raw.kalshi_no ?? 1 - kalshiYes,
+    raw_spread: raw.spread ?? raw.raw_spread ?? 0,
+    fee_adjusted_spread: raw.fee_adjusted_spread ?? 0,
+  };
+}
+
 /** Fetch all matched market pairs, sorted by fee-adjusted spread */
 export async function getMatches(filters?: MatchFilters): Promise<Match[]> {
   const params: Record<string, string> = {};
   if (filters?.min_spread !== undefined) params.min_spread = String(filters.min_spread);
   if (filters?.sort) params.sort = filters.sort;
   if (filters?.direction) params.direction = filters.direction;
-  return request<Match[]>("/matches", params);
+  const raw = await request<unknown[]>("/matches", params);
+  return raw.map(transformMatch);
 }
 
 /** Fetch a single match by ID */
 export async function getMatch(matchId: string): Promise<Match> {
-  return request<Match>(`/matches/${matchId}`);
+  const raw = await request<unknown>(`/matches/${matchId}`);
+  return transformMatch(raw);
 }
 
 /** Fetch price history for a match */
@@ -55,7 +93,8 @@ export async function getMatchHistory(
 ): Promise<PriceSnapshot[]> {
   const params: Record<string, string> = {};
   if (hours !== undefined) params.hours = String(hours);
-  return request<PriceSnapshot[]>(`/matches/${matchId}/history`, params);
+  const raw = await request<unknown[]>(`/matches/${matchId}/history`, params);
+  return raw.map(transformSnapshot);
 }
 
 /** Fetch markets from one or both platforms */
