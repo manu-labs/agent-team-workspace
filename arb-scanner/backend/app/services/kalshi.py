@@ -133,6 +133,7 @@ async def fetch_kalshi_markets() -> list[NormalizedMarket]:
         series_categories = await _fetch_series_categories(client)
 
         markets: list[NormalizedMarket] = []
+        filtered = 0
         cursor = None
 
         while True:
@@ -173,14 +174,20 @@ async def fetch_kalshi_markets() -> list[NormalizedMarket]:
             for raw in raw_markets:
                 market = _normalize(raw, series_categories)
                 if market:
-                    markets.append(market)
+                    if market.volume > 0:
+                        markets.append(market)
+                    else:
+                        filtered += 1
 
             logger.debug("Kalshi: fetched %d markets (cursor=%s)", len(raw_markets), cursor)
 
             if not cursor or len(raw_markets) < _PAGE_SIZE:
                 break  # last page
 
-    logger.info("Kalshi: fetched %d valid markets total", len(markets))
+    logger.info(
+        "Kalshi: fetched %d active markets (%d zero-volume filtered)",
+        len(markets), filtered,
+    )
     return markets
 
 
