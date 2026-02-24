@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -18,6 +19,11 @@ _PAGE_SIZE = 100
 _RETRIES = 3
 _PLATFORM = "polymarket"
 
+# Skip game/map/set-level sub-markets — Kalshi only has series-level contracts,
+# so these can never produce valid cross-platform matches.
+# Matches: "Game 1 Winner", "Map 2 Winner", "Set 3 Winner", "Round 1 Winner", etc.
+_GAME_LEVEL_RE = re.compile(r"^(Game|Map|Set|Round)\s+\d+", re.IGNORECASE)
+
 
 def _normalize(raw: dict) -> NormalizedMarket | None:
     """Convert a raw Gamma API market dict to NormalizedMarket. Returns None if malformed."""
@@ -28,6 +34,16 @@ def _normalize(raw: dict) -> NormalizedMarket | None:
 
         question = (raw.get("question") or "").strip()
         if not question:
+            return None
+
+        # Skip game-level sub-markets (Game 1, Map 2, Set 3, etc.)
+        # These are sub-events in esports/sports that Kalshi doesn't have.
+        group_title = (raw.get("groupItemTitle") or "").strip()
+        if group_title and _GAME_LEVEL_RE.match(group_title):
+            logger.debug(
+                "Polymarket %s: skipping game-level sub-market (groupItemTitle=%s)",
+                market_id, group_title,
+            )
             return None
 
         # outcomePrices is a JSON string: "[0.65, 0.35]"
@@ -99,7 +115,6 @@ def _normalize(raw: dict) -> NormalizedMarket | None:
         # game-level sub-markets (e.g. "Game 1 Winner") from series-level
         # markets ("Match Winner") in esports events.
         description = ((raw.get("description") or "")[:300]).strip()
-        group_title = (raw.get("groupItemTitle") or "").strip()
         parts = [question]
         if group_title:
             parts.append(f"Market type: {group_title}")
