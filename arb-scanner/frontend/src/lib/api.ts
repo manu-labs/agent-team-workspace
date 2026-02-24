@@ -74,7 +74,7 @@ function transformSnapshot(raw: any): PriceSnapshot {
 export async function getMatches(filters?: MatchFilters): Promise<Match[]> {
   const params: Record<string, string> = {};
   if (filters?.min_spread !== undefined) params.min_spread = String(filters.min_spread);
-  if (filters?.sort) params.sort = filters.sort;
+  if (filters?.sort) params.sort_by = filters.sort;
   if (filters?.direction) params.direction = filters.direction;
   const raw = await request<unknown[]>("/matches", params);
   return raw.map(transformMatch);
