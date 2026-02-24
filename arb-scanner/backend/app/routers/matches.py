@@ -21,13 +21,17 @@ def _serialize_match(row: dict) -> dict:
     kalshi_yes = row.get("kalshi_yes") or 0
     spread_info = calculate_spread(poly_yes, kalshi_yes)
 
+    # Use actual no_price from markets table (falls back to 1 - yes if not available)
+    poly_no = row.get("polymarket_no") if row.get("polymarket_no") is not None else round(1 - poly_yes, 4)
+    kalshi_no = row.get("kalshi_no") if row.get("kalshi_no") is not None else round(1 - kalshi_yes, 4)
+
     return {
         "id": str(row["id"]),
         "question": row.get("question") or row.get("polymarket_question") or "",
         "poly_yes": poly_yes,
-        "poly_no": round(1 - poly_yes, 4),
+        "poly_no": poly_no,
         "kalshi_yes": kalshi_yes,
-        "kalshi_no": round(1 - kalshi_yes, 4),
+        "kalshi_no": kalshi_no,
         "raw_spread": row.get("spread") or 0,
         "fee_adjusted_spread": row.get("fee_adjusted_spread") or 0,
         "direction": spread_info["direction"],
@@ -101,8 +105,10 @@ async def list_matches(
             m.question, m.last_updated,
             pm.question AS polymarket_question, pm.url AS polymarket_url,
             pm.end_date AS polymarket_end_date, pm.category,
+            pm.no_price AS polymarket_no,
             km.question AS kalshi_question, km.url AS kalshi_url,
-            km.end_date AS kalshi_end_date
+            km.end_date AS kalshi_end_date,
+            km.no_price AS kalshi_no
         FROM matches m
         LEFT JOIN markets pm ON m.polymarket_id = pm.id
         LEFT JOIN markets km ON m.kalshi_id = km.id
@@ -128,8 +134,10 @@ async def get_match(match_id: int):
             m.question, m.last_updated,
             pm.question AS polymarket_question, pm.url AS polymarket_url,
             pm.end_date AS polymarket_end_date, pm.category,
+            pm.no_price AS polymarket_no,
             km.question AS kalshi_question, km.url AS kalshi_url,
-            km.end_date AS kalshi_end_date
+            km.end_date AS kalshi_end_date,
+            km.no_price AS kalshi_no
         FROM matches m
         LEFT JOIN markets pm ON m.polymarket_id = pm.id
         LEFT JOIN markets km ON m.kalshi_id = km.id
@@ -167,3 +175,4 @@ async def get_match_history(
     )
     rows = await cursor.fetchall()
     return [_serialize_snapshot(dict(row)) for row in rows]
+
