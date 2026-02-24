@@ -1,5 +1,6 @@
 """Kalshi ingester — fetches open markets from the Kalshi trade API."""
 
+import asyncio
 import json
 import logging
 from datetime import datetime, timezone
@@ -35,7 +36,6 @@ async def _fetch_series_categories(client: httpx.AsyncClient) -> dict[str, str]:
             try:
                 resp = await client.get(KALSHI_SERIES_URL, params=params)
                 if resp.status_code == 429:
-                    import asyncio
                     wait = backoff * 3
                     logger.warning("Kalshi series rate-limited, backing off %.0fs", wait)
                     await asyncio.sleep(wait)
@@ -61,7 +61,6 @@ async def _fetch_series_categories(client: httpx.AsyncClient) -> dict[str, str]:
                     return categories
             except httpx.HTTPError as exc:
                 logger.warning("Kalshi series network error (attempt %d): %s", attempt + 1, exc)
-            import asyncio
             await asyncio.sleep(backoff)
             backoff *= 2
 
@@ -148,7 +147,6 @@ async def fetch_kalshi_markets() -> list[NormalizedMarket]:
                 try:
                     resp = await client.get(KALSHI_MARKETS_URL, params=params)
                     if resp.status_code == 429:
-                        import asyncio
                         wait = backoff * 3
                         logger.warning("Kalshi rate-limited, backing off %.0fs", wait)
                         await asyncio.sleep(wait)
@@ -165,7 +163,6 @@ async def fetch_kalshi_markets() -> list[NormalizedMarket]:
                         break
                 except httpx.HTTPError as exc:
                     logger.warning("Kalshi network error (attempt %d): %s", attempt + 1, exc)
-                import asyncio
                 await asyncio.sleep(backoff)
                 backoff *= 2
 

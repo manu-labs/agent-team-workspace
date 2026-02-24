@@ -1,5 +1,6 @@
 """Polymarket ingester — fetches active markets from the Gamma API."""
 
+import asyncio
 import json
 import logging
 from datetime import datetime, timezone
@@ -96,7 +97,6 @@ async def _fetch_page(client: httpx.AsyncClient, offset: int) -> list[dict]:
         try:
             resp = await client.get(GAMMA_API_URL, params=params)
             if resp.status_code == 429:
-                import asyncio
                 wait = backoff * 3
                 logger.warning("Polymarket rate-limited, backing off %.0fs", wait)
                 await asyncio.sleep(wait)
@@ -114,7 +114,6 @@ async def _fetch_page(client: httpx.AsyncClient, offset: int) -> list[dict]:
         except httpx.HTTPError as exc:
             logger.warning("Polymarket network error (attempt %d): %s", attempt + 1, exc)
 
-        import asyncio
         await asyncio.sleep(backoff)
         backoff *= 2
 
