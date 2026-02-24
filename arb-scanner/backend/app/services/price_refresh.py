@@ -202,7 +202,16 @@ async def _fetch_kalshi_price(client, semaphore, market_id: str, prices: dict) -
             else:
                 yes_price = max(0.0, min(1.0, float(yes_ask_raw or 0) / 100.0))
 
-            no_price = max(0.0, min(1.0, 1.0 - yes_price))
+            # Read no_price from actual NO-side order book
+            no_ask_raw = data.get("no_ask", 0)
+            no_bid_raw = data.get("no_bid", 0)
+
+            if no_ask_raw and no_bid_raw:
+                no_price = max(0.0, min(1.0, (float(no_ask_raw) + float(no_bid_raw)) / 200.0))
+            elif no_ask_raw:
+                no_price = max(0.0, min(1.0, float(no_ask_raw) / 100.0))
+            else:
+                no_price = max(0.0, min(1.0, 1.0 - yes_price))
 
             prices[market_id] = {
                 "yes_price": yes_price,
@@ -213,3 +222,4 @@ async def _fetch_kalshi_price(client, semaphore, market_id: str, prices: dict) -
         except Exception as exc:
             logger.debug("Failed to fetch Kalshi %s: %s", ticker, exc)
             return False
+
