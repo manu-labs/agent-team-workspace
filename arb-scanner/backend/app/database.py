@@ -64,6 +64,7 @@ async def init_db():
 
         CREATE INDEX IF NOT EXISTS idx_markets_platform ON markets(platform);
         CREATE INDEX IF NOT EXISTS idx_markets_category ON markets(category);
+        CREATE INDEX IF NOT EXISTS idx_markets_volume ON markets(volume);
         CREATE INDEX IF NOT EXISTS idx_price_history_match ON price_history(match_id);
         CREATE INDEX IF NOT EXISTS idx_price_history_time ON price_history(recorded_at);
     """)
