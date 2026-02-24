@@ -3,6 +3,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     GROQ_API_KEY: str = ""
+    OPENAI_API_KEY: str = ""
     # Railway: set DB_PATH=/data/arb_scanner.db and attach a volume at /data
     DB_PATH: str = "/data/arb_scanner.db"
     POLL_INTERVAL_SECONDS: int = 60
