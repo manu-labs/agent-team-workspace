@@ -3,7 +3,7 @@ import { getMatches } from "../lib/api";
 import type { Match, MatchFilters } from "../lib/types";
 import MatchRow from "./MatchRow";
 
-const REFRESH_INTERVAL_MS = 10_000;
+const REFRESH_INTERVAL_MS = 5_000;
 
 // ── Skeleton loader ───────────────────────────────────────────────────────────
 
@@ -143,7 +143,7 @@ export default function MatchTable() {
     return () => abortRef.current?.abort();
   }, [fetchMatches]);
 
-  // Auto-refresh every 10s
+  // Auto-refresh every 5s
   useEffect(() => {
     const id = setInterval(() => void fetchMatches(), REFRESH_INTERVAL_MS);
     return () => clearInterval(id);
