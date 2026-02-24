@@ -111,18 +111,8 @@ def _normalize(raw: dict, series_categories: dict[str, str]) -> NormalizedMarket
         else:
             yes_price = max(0.0, min(1.0, float(yes_ask_raw or 0) / 100.0))
 
-        # Read no_price from the actual NO-side order book instead of assuming 1 - yes
-        # Use no_ask (buy price) to match Kalshi's website and represent actual execution cost
-        # Fallback chain: no_ask → no_bid → 1 - yes_price
-        no_ask_raw = raw.get("no_ask", 0)
-        no_bid_raw = raw.get("no_bid", 0)
-
-        if no_ask_raw and no_ask_raw > 0:
-            no_price = max(0.0, min(1.0, float(no_ask_raw) / 100.0))
-        elif no_bid_raw and no_bid_raw > 0:
-            no_price = max(0.0, min(1.0, float(no_bid_raw) / 100.0))
-        else:
-            no_price = max(0.0, min(1.0, 1.0 - yes_price))
+        # Derive no_price from complement for consistency
+        no_price = max(0.0, min(1.0, 1.0 - yes_price))
 
         # Volume
         volume = float(raw.get("volume") or raw.get("volume_24h") or 0)
@@ -144,6 +134,17 @@ def _normalize(raw: dict, series_categories: dict[str, str]) -> NormalizedMarket
         # with order_by=querymatch for best results (per Supreme Leader).
         url = f"https://kalshi.com/search?q={quote(title)}&order_by=querymatch"
 
+        # Build enriched embedding text — helps distinguish sports contracts where
+        # multiple tickers share the same title (e.g. opposite sides of a game).
+        yes_sub = (raw.get("yes_sub_title") or "").strip()
+        rules = ((raw.get("rules_primary") or "")[:300]).strip()
+        parts = [title]
+        if yes_sub:
+            parts.append(f"YES means: {yes_sub}")
+        if rules:
+            parts.append(rules)
+        embed_text = ". ".join(parts)
+
         return NormalizedMarket(
             id=f"{_PLATFORM}:{ticker}",
             platform=_PLATFORM,
@@ -154,6 +155,7 @@ def _normalize(raw: dict, series_categories: dict[str, str]) -> NormalizedMarket
             volume=volume,
             end_date=end_date,
             url=url,
+            embed_text=embed_text,
             raw_data=raw,
             last_updated=datetime.now(timezone.utc),
         )
@@ -167,11 +169,6 @@ async def fetch_kalshi_markets() -> list[NormalizedMarket]:
     now = datetime.now(timezone.utc)
     expiry_cutoff = now + timedelta(days=settings.MATCH_EXPIRY_DAYS)
 
-    # Server-side timestamp filters (Unix seconds) — only fetch markets closing
-    # between now and our expiry cutoff, so the API returns far fewer pages.
-    min_close_ts = int(now.timestamp())
-    max_close_ts = int(expiry_cutoff.timestamp())
-
     authenticated = bool(settings.KALSHI_API_KEY_ID and settings.KALSHI_API_KEY)
     if authenticated:
         logger.info("Kalshi: using RSA-PSS authenticated requests")
@@ -182,16 +179,12 @@ async def fetch_kalshi_markets() -> list[NormalizedMarket]:
         series_categories = await _fetch_series_categories(client)
 
         markets: list[NormalizedMarket] = []
+        expiry_filtered = 0
         low_volume_filtered = 0
         cursor = None
 
         while True:
-            params: dict = {
-                "status": "open",
-                "limit": _PAGE_SIZE,
-                "min_close_ts": min_close_ts,
-                "max_close_ts": max_close_ts,
-            }
+            params: dict = {"status": "open", "limit": _PAGE_SIZE}
             if cursor:
                 params["cursor"] = cursor
 
@@ -234,6 +227,15 @@ async def fetch_kalshi_markets() -> list[NormalizedMarket]:
                 if not market:
                     continue
 
+                # Skip markets with no end date, already expired, or too far out
+                if (
+                    market.end_date is None
+                    or market.end_date <= now
+                    or market.end_date > expiry_cutoff
+                ):
+                    expiry_filtered += 1
+                    continue
+
                 # Skip low-volume markets
                 if market.volume < settings.MIN_MATCH_VOLUME:
                     low_volume_filtered += 1
@@ -247,8 +249,8 @@ async def fetch_kalshi_markets() -> list[NormalizedMarket]:
                 break  # last page
 
     logger.info(
-        "Kalshi: %d markets kept (low-volume: %d) [server-filtered to %d-%d day window]",
-        len(markets), low_volume_filtered, 0, settings.MATCH_EXPIRY_DAYS,
+        "Kalshi: %d markets kept (expired/too-far: %d, low-volume: %d)",
+        len(markets), expiry_filtered, low_volume_filtered,
     )
     return markets
 
@@ -273,8 +275,8 @@ async def ingest_kalshi() -> dict[str, int]:
             await db.execute(
                 """
                 INSERT INTO markets (id, platform, question, category, yes_price, no_price,
-                                     volume, end_date, url, raw_data, last_updated)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                     volume, end_date, url, raw_data, last_updated, embed_text)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     question     = excluded.question,
                     category     = excluded.category,
@@ -284,13 +286,14 @@ async def ingest_kalshi() -> dict[str, int]:
                     end_date     = excluded.end_date,
                     url          = excluded.url,
                     raw_data     = excluded.raw_data,
-                    last_updated = excluded.last_updated
+                    last_updated = excluded.last_updated,
+                    embed_text   = excluded.embed_text
                 """,
                 (
                     m.id, m.platform, m.question, m.category,
                     m.yes_price, m.no_price, m.volume,
                     m.end_date.isoformat() if m.end_date else None,
-                    m.url, '{}', m.last_updated.isoformat(),
+                    m.url, '{}', m.last_updated.isoformat(), m.embed_text,
                 ),
             )
             upserted += 1
