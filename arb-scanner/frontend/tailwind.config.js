@@ -33,11 +33,16 @@ export default {
       animation: {
         "pulse-slow": "pulse 3s ease-in-out infinite",
         "scan": "scan 4s linear infinite",
+        "flash-green": "flash-green 600ms ease-out",
       },
       keyframes: {
         scan: {
           "0%": { transform: "translateY(-100%)" },
           "100%": { transform: "translateY(100%)" },
+        },
+        "flash-green": {
+          "0%": { color: "#22c55e", textShadow: "0 0 6px rgba(34,197,94,0.4)" },
+          "100%": { color: "", textShadow: "none" },
         },
       },
     },
