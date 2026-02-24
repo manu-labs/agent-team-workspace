@@ -28,7 +28,7 @@ export default function ProfitCalculator({ match }: ProfitCalculatorProps) {
   const sellPrice = isBuyKalshi ? match.poly_yes : match.kalshi_yes;
   const buyFeeRate = isBuyKalshi ? KALSHI_FEE_RATE : POLY_FEE_RATE;
 
-  // Each contract costs 1 unit priced in cents => dollar cost = contracts * price
+  // Each contract costs 1 unit priced in cents -> dollar cost = contracts * price
   const buyCost = contracts * buyPrice;
   const sellRevenue = contracts * sellPrice;
   // Fee applied to winnings on buy side
@@ -93,7 +93,7 @@ export default function ProfitCalculator({ match }: ProfitCalculatorProps) {
             </span>
           </div>
 
-          {/* Divider + net profit */}
+          {/* Divider */}
           <div className="mt-2 border-t border-terminal-border pt-2">
             <div className="flex items-baseline justify-between">
               <span className="font-mono text-xs uppercase tracking-wider text-zinc-400">
