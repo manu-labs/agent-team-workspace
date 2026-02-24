@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 
 import httpx
 from bs4 import BeautifulSoup
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.event import Event, Platform
@@ -35,7 +35,12 @@ _DATE_RE = re.compile(
     re.IGNORECASE,
 )
 _DATE_FMTS = ["%B %d, %Y", "%B %d %Y", "%b %d, %Y", "%b %d %Y"]
+# Matches short dates like "2/28/26" or "2/28/2026"
+_DATE_SHORT_RE = re.compile(r"\b(\d{1,2})/(\d{1,2})/(\d{2,4})\b")
 _BULLET_RE = re.compile(r"^[\s\u2022\-\*]+")
+
+# Keywords that, combined with "2026", identify a section heading to start from
+_SECTION_2026_KEYWORDS = ["rsvp", "added", "event", "list"]
 
 
 def _detect_platform(url: str) -> Platform:
@@ -47,6 +52,7 @@ def _detect_platform(url: str) -> Platform:
 
 
 def _parse_date(text: str) -> date | None:
+    """Parse 'Month DD, YYYY' style dates."""
     m = _DATE_RE.search(text)
     if not m:
         return None
@@ -57,6 +63,20 @@ def _parse_date(text: str) -> date | None:
         except ValueError:
             continue
     return None
+
+
+def _parse_date_short(text: str) -> date | None:
+    """Parse short M/D/YY or M/D/YYYY dates like 'Added 2/28/26'."""
+    m = _DATE_SHORT_RE.search(text)
+    if not m:
+        return None
+    month, day, year = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    if year < 100:
+        year += 2000
+    try:
+        return date(year, month, day)
+    except ValueError:
+        return None
 
 
 async def _fetch_with_retry(url: str, retries: int = 3) -> str | None:
@@ -92,13 +112,14 @@ async def _fetch_with_retry(url: str, retries: int = 3) -> str | None:
 def _parse_events(html: str) -> list[dict]:
     """Parse the rsvpatx.com event list HTML into a list of raw event dicts.
 
-    Page structure (Squarespace): date headers are <strong> tags inside <p> elements,
-    followed by <p> elements containing bullet text and <a> RSVP links.
+    Only scrapes the "Recently Added 2026 RSVPs" section and subsequent 2026
+    content. Stops when a "2025" section heading or date is encountered.
+    Falls back to full-page parsing with a year<2026 safety filter if no
+    2026 section heading is found.
     """
     soup = BeautifulSoup(html, "html.parser")
     scraped_at = datetime.now(timezone.utc)
 
-    # Find the main content block. Squarespace uses sqs-block-html; fall back to body.
     content = (
         soup.find("main")
         or soup.find("div", class_=re.compile(r"sqs-block-html"))
@@ -106,19 +127,67 @@ def _parse_events(html: str) -> list[dict]:
         or soup
     )
 
+    # --- Pass 1: find where the 2026 section starts ---
+    # Look for a heading containing "2026" AND a relevant keyword.
+    # This is resilient to minor header text changes.
+    start_element = None
+    for el in content.find_all(["h1", "h2", "h3", "h4", "p"]):
+        text = el.get_text(" ", strip=True).lower()
+        if "2026" in text and any(kw in text for kw in _SECTION_2026_KEYWORDS):
+            start_element = el
+            logger.info("Found 2026 section heading: %r", el.get_text(" ", strip=True)[:80])
+            break
+
+    if start_element is None:
+        logger.warning(
+            "2026 section heading not found on %s — falling back to full-page parse "
+            "(year<2026 safety filter will apply)", SOURCE_URL
+        )
+        elements = content.find_all(["p", "li"])
+    else:
+        # Traverse all p/li elements that follow the 2026 heading
+        elements = start_element.find_all_next(["p", "li"])
+
+    # --- Pass 2: parse events, stopping at 2025 boundary ---
     current_date: date | None = None
     events: list[dict] = []
     seen_urls: set[str] = set()
 
-    for element in content.find_all(["p", "li"]):
+    for element in elements:
         strong = element.find("strong")
         if strong:
-            parsed = _parse_date(strong.get_text(" ", strip=True))
+            strong_text = strong.get_text(" ", strip=True)
+
+            # Stop if we hit any text containing "2025" (section heading or date)
+            if "2025" in strong_text:
+                logger.info(
+                    "Reached 2025 boundary (%r) — stopping scrape", strong_text[:60]
+                )
+                break
+
+            # Try "Month DD, YYYY" date format
+            parsed = _parse_date(strong_text)
             if parsed:
+                if parsed.year < 2026:
+                    logger.info("Reached pre-2026 date (%s) — stopping scrape", parsed)
+                    break
                 current_date = parsed
                 continue
 
+            # Try short "M/D/YY" date format (e.g. "Added 2/28/26")
+            parsed_short = _parse_date_short(strong_text)
+            if parsed_short:
+                if parsed_short.year < 2026:
+                    logger.info("Reached pre-2026 date (%s) — stopping scrape", parsed_short)
+                    break
+                current_date = parsed_short
+                continue
+
         if current_date is None:
+            continue
+
+        # Safety fallback: skip any event dated before 2026
+        if current_date.year < 2026:
             continue
 
         for link in element.find_all("a"):
@@ -149,20 +218,29 @@ def _parse_events(html: str) -> list[dict]:
 async def scrape_and_upsert(db: AsyncSession) -> dict[str, int]:
     """Scrape rsvpatx.com and upsert events into the database.
 
-    Returns counts: {"found": N, "new": N, "updated": N, "errors": N}.
+    Purges stale pre-2026 events before inserting. Returns counts:
+    {"found": N, "new": N, "updated": N, "errors": N, "purged": N}.
     """
     html = await _fetch_with_retry(SOURCE_URL)
     if html is None:
         logger.error("Failed to fetch %s after retries", SOURCE_URL)
-        return {"found": 0, "new": 0, "updated": 0, "errors": 1}
+        return {"found": 0, "new": 0, "updated": 0, "errors": 1, "purged": 0}
 
     try:
         raw_events = _parse_events(html)
     except Exception as exc:
         logger.error("Failed to parse events page: %s", exc, exc_info=True)
-        return {"found": 0, "new": 0, "updated": 0, "errors": 1}
+        return {"found": 0, "new": 0, "updated": 0, "errors": 1, "purged": 0}
 
     logger.info("Scraped %d events from %s", len(raw_events), SOURCE_URL)
+
+    # Purge stale pre-2026 events from the database
+    purge_result = await db.execute(
+        delete(Event).where(Event.date < date(2026, 1, 1))
+    )
+    purged_count = purge_result.rowcount
+    if purged_count:
+        logger.info("Purged %d stale pre-2026 events from DB", purged_count)
 
     new_count = updated_count = error_count = 0
 
@@ -198,8 +276,13 @@ async def scrape_and_upsert(db: AsyncSession) -> dict[str, int]:
 
     await db.commit()
     logger.info(
-        "Upsert complete — new: %d, updated: %d, errors: %d",
-        new_count, updated_count, error_count,
+        "Upsert complete — new: %d, updated: %d, errors: %d, purged: %d",
+        new_count, updated_count, error_count, purged_count,
     )
-    return {"found": len(raw_events), "new": new_count, "updated": updated_count, "errors": error_count}
-
+    return {
+        "found": len(raw_events),
+        "new": new_count,
+        "updated": updated_count,
+        "errors": error_count,
+        "purged": purged_count,
+    }
