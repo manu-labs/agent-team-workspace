@@ -1,13 +1,20 @@
 """Tests for the Groq LLM matcher."""
 import hashlib
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 import app.services.matcher as matcher_module
 from app.models.market import NormalizedMarket
-from app.services.matcher import _cache_key, _market_to_dict, match_markets
+from app.services.matcher import (
+    _DATE_TOLERANCE_SECONDS,
+    _cache_key,
+    _dates_compatible,
+    _market_to_dict,
+    _parse_date,
+    match_markets,
+)
 
 
 def make_market(**kwargs):
@@ -51,6 +58,100 @@ def make_market_dict(market_id, question, end_date="2026-03-31", yes_price=0.6):
     }
 
 
+# ---------------------------------------------------------------------------
+# _parse_date
+# ---------------------------------------------------------------------------
+
+class TestParseDate:
+    def test_datetime_passthrough(self):
+        dt = datetime(2026, 3, 31, tzinfo=timezone.utc)
+        assert _parse_date(dt) is dt
+
+    def test_iso_string(self):
+        result = _parse_date("2026-03-31T00:00:00+00:00")
+        assert result == datetime(2026, 3, 31, tzinfo=timezone.utc)
+
+    def test_z_suffix_converted(self):
+        result = _parse_date("2026-03-31T12:00:00Z")
+        assert result == datetime(2026, 3, 31, 12, 0, 0, tzinfo=timezone.utc)
+
+    def test_none_returns_none(self):
+        assert _parse_date(None) is None
+
+    def test_empty_string_returns_none(self):
+        assert _parse_date("") is None
+
+    def test_unknown_string_returns_none(self):
+        assert _parse_date("unknown") is None
+
+    def test_malformed_string_returns_none(self):
+        assert _parse_date("not-a-date") is None
+
+    def test_date_only_string(self):
+        # date-only ISO strings should parse fine
+        result = _parse_date("2026-03-31")
+        assert result is not None
+        assert result.year == 2026
+        assert result.month == 3
+        assert result.day == 31
+
+
+# ---------------------------------------------------------------------------
+# _dates_compatible
+# ---------------------------------------------------------------------------
+
+class TestDatesCompatible:
+    def test_same_date_compatible(self):
+        date = "2026-03-31T00:00:00Z"
+        assert _dates_compatible(date, date) is True
+
+    def test_within_tolerance_compatible(self):
+        # 12 hours apart — within 24h tolerance
+        d1 = datetime(2026, 3, 31, 0, tzinfo=timezone.utc)
+        d2 = datetime(2026, 3, 31, 12, tzinfo=timezone.utc)
+        assert _dates_compatible(d1, d2) is True
+
+    def test_exactly_at_tolerance_compatible(self):
+        d1 = datetime(2026, 3, 31, 0, tzinfo=timezone.utc)
+        d2 = d1 + timedelta(seconds=_DATE_TOLERANCE_SECONDS)
+        assert _dates_compatible(d1, d2) is True
+
+    def test_beyond_tolerance_incompatible(self):
+        # 31 days apart (February vs March)
+        d1 = "2026-02-28T00:00:00Z"
+        d2 = "2026-03-31T00:00:00Z"
+        assert _dates_compatible(d1, d2) is False
+
+    def test_just_over_tolerance_incompatible(self):
+        d1 = datetime(2026, 3, 31, 0, tzinfo=timezone.utc)
+        d2 = d1 + timedelta(seconds=_DATE_TOLERANCE_SECONDS + 1)
+        assert _dates_compatible(d1, d2) is False
+
+    def test_poly_missing_returns_true(self):
+        # Missing date → let LLM decide
+        assert _dates_compatible(None, "2026-03-31T00:00:00Z") is True
+
+    def test_kalshi_missing_returns_true(self):
+        assert _dates_compatible("2026-03-31T00:00:00Z", None) is True
+
+    def test_both_missing_returns_true(self):
+        assert _dates_compatible(None, None) is True
+
+    def test_unknown_string_returns_true(self):
+        assert _dates_compatible("unknown", "2026-03-31T00:00:00Z") is True
+
+    def test_malformed_date_returns_true(self):
+        # Unparseable → treat as missing, let LLM decide
+        assert _dates_compatible("not-a-date", "2026-03-31T00:00:00Z") is True
+
+    def test_tolerance_is_24_hours(self):
+        assert _DATE_TOLERANCE_SECONDS == 86400
+
+
+# ---------------------------------------------------------------------------
+# _cache_key
+# ---------------------------------------------------------------------------
+
 class TestCacheKey:
     def test_produces_md5_hex(self):
         key = _cache_key("poly:abc", "kalshi:xyz")
@@ -61,19 +162,20 @@ class TestCacheKey:
         assert _cache_key("poly:a", "kalshi:b") != _cache_key("poly:c", "kalshi:d")
 
     def test_order_matters(self):
-        # (poly, kalshi) != (kalshi, poly)
         assert _cache_key("poly:a", "kalshi:b") != _cache_key("kalshi:b", "poly:a")
 
     def test_deterministic(self):
-        k1 = _cache_key("poly:x", "kalshi:y")
-        k2 = _cache_key("poly:x", "kalshi:y")
-        assert k1 == k2
+        assert _cache_key("poly:x", "kalshi:y") == _cache_key("poly:x", "kalshi:y")
 
     def test_key_is_32_char_hex(self):
         key = _cache_key("poly:abc", "kalshi:xyz")
         assert len(key) == 32
         assert all(c in "0123456789abcdef" for c in key)
 
+
+# ---------------------------------------------------------------------------
+# _market_to_dict
+# ---------------------------------------------------------------------------
 
 class TestMarketToDict:
     def test_dict_passes_through_unchanged(self):
@@ -106,9 +208,11 @@ class TestMarketToDict:
         assert result["url"] == "https://example.com"
 
 
-class TestPass2Confirm:
-    """Tests for _pass2_confirm — Groq LLM confirmation logic."""
+# ---------------------------------------------------------------------------
+# _pass2_confirm
+# ---------------------------------------------------------------------------
 
+class TestPass2Confirm:
     async def test_rejects_below_confidence_threshold(self):
         """Candidates below _CONFIDENCE_THRESHOLD (0.7) are immediately rejected."""
         candidate = {"poly_id": "poly:A", "kalshi_id": "kalshi:B", "confidence": 0.5}
@@ -122,7 +226,6 @@ class TestPass2Confirm:
         mock_groq.assert_not_called()
 
     async def test_accepts_matching_questions_and_deadlines(self):
-        """Confirms a pair when Groq says confirmed=true."""
         candidate = {"poly_id": "poly:A", "kalshi_id": "kalshi:B", "confidence": 0.85}
         markets = {
             "poly:A": make_market_dict("poly:A", "Will BTC hit $100k?", end_date="2026-03-31"),
@@ -143,14 +246,12 @@ class TestPass2Confirm:
             "poly:A": make_market_dict("poly:A", "Will X happen?", end_date="2026-02-28"),
             "kalshi:B": make_market_dict("kalshi:B", "Will X happen?", end_date="2026-03-31"),
         }
-        # Groq correctly identifies different deadlines and returns confirmed=false
         groq_response = '{"confirmed": false, "reasoning": "Different resolution deadlines"}'
         with patch("app.services.matcher._call_groq", new_callable=AsyncMock, return_value=groq_response):
             result = await matcher_module._pass2_confirm(candidate, markets)
         assert result is None
 
     async def test_handles_malformed_groq_response(self):
-        """Malformed/non-JSON Groq responses are handled gracefully (returns None)."""
         candidate = {"poly_id": "poly:A", "kalshi_id": "kalshi:B", "confidence": 0.85}
         markets = {
             "poly:A": make_market_dict("poly:A", "Will X?"),
@@ -161,7 +262,6 @@ class TestPass2Confirm:
         assert result is None
 
     async def test_handles_none_groq_response(self):
-        """None Groq response (API failure) is handled gracefully."""
         candidate = {"poly_id": "poly:A", "kalshi_id": "kalshi:B", "confidence": 0.85}
         markets = {
             "poly:A": make_market_dict("poly:A", "Will X?"),
@@ -172,13 +272,16 @@ class TestPass2Confirm:
         assert result is None
 
     async def test_returns_none_when_market_not_in_lookup(self):
-        """Returns None if market IDs are not in the markets_by_id dict."""
         candidate = {"poly_id": "poly:MISSING", "kalshi_id": "kalshi:MISSING", "confidence": 0.85}
         with patch("app.services.matcher._call_groq", new_callable=AsyncMock) as mock_groq:
             result = await matcher_module._pass2_confirm(candidate, {})
         assert result is None
         mock_groq.assert_not_called()
 
+
+# ---------------------------------------------------------------------------
+# match_markets
+# ---------------------------------------------------------------------------
 
 class TestMatchMarkets:
     async def test_returns_empty_without_groq_key(self):
@@ -187,10 +290,11 @@ class TestMatchMarkets:
         assert result == []
 
     async def test_returns_empty_for_empty_market_lists(self):
-        with patch.object(matcher_module.settings, "GROQ_API_KEY", "fake-key"):
-            with patch("app.services.matcher.get_db", new_callable=AsyncMock, return_value=make_db_mock()):
-                with patch("app.services.matcher.find_embedding_candidates", new_callable=AsyncMock, return_value=[]):
-                    result = await match_markets([], [])
+        with patch.object(matcher_module.settings, "GROQ_API_KEY", "fake-key"), \
+             patch("app.services.matcher.get_db", new_callable=AsyncMock, return_value=make_db_mock()), \
+             patch("app.services.matcher.find_embedding_candidates",
+                   new_callable=AsyncMock, return_value=[]):
+            result = await match_markets([], [])
         assert result == []
 
     async def test_skips_candidates_in_rejection_cache(self):
@@ -201,14 +305,12 @@ class TestMatchMarkets:
         original_rejected = matcher_module._rejected_keys.copy()
         try:
             matcher_module._rejected_keys.add(key)
-
             fake_candidates = [{"poly_id": "poly:REJ", "kalshi_id": "kalshi:REJ", "confidence": 0.9}]
 
             with patch.object(matcher_module.settings, "GROQ_API_KEY", "fake-key"), \
                  patch("app.services.matcher.find_embedding_candidates",
                        new_callable=AsyncMock, return_value=fake_candidates), \
-                 patch("app.services.matcher.get_db", new_callable=AsyncMock,
-                       return_value=make_db_mock()), \
+                 patch("app.services.matcher.get_db", new_callable=AsyncMock, return_value=make_db_mock()), \
                  patch("app.services.matcher._call_groq", new_callable=AsyncMock) as mock_groq:
 
                 await match_markets([poly], [kalshi])
@@ -226,7 +328,6 @@ class TestMatchMarkets:
             "kalshi_id": "kalshi:CACHED",
         }[k]
         db_mock = make_db_mock(cached_rows=[cached_row])
-
         fake_candidates = [{"poly_id": "poly:CACHED", "kalshi_id": "kalshi:CACHED", "confidence": 0.9}]
 
         with patch.object(matcher_module.settings, "GROQ_API_KEY", "fake-key"), \
@@ -266,7 +367,6 @@ class TestMatchMarkets:
         original_rejected = matcher_module._rejected_keys.copy()
         try:
             matcher_module._rejected_keys.discard(key)
-
             fake_candidates = [{"poly_id": "poly:RJ2", "kalshi_id": "kalshi:RJ2", "confidence": 0.85}]
             groq_response = '{"confirmed": false, "reasoning": "Different events"}'
 
@@ -283,41 +383,51 @@ class TestMatchMarkets:
             matcher_module._rejected_keys = original_rejected
 
     async def test_below_confidence_threshold_skipped(self):
-        """Candidates with confidence < _CONFIDENCE_THRESHOLD are rejected without LLM call."""
+        """Candidates with confidence < _CONFIDENCE_THRESHOLD produce no confirmed matches."""
         poly = make_market(id="poly:LOW", platform="polymarket")
         kalshi = make_market(id="kalshi:LOW", platform="kalshi")
-
         fake_candidates = [{"poly_id": "poly:LOW", "kalshi_id": "kalshi:LOW", "confidence": 0.5}]
 
         with patch.object(matcher_module.settings, "GROQ_API_KEY", "fake-key"), \
              patch("app.services.matcher.find_embedding_candidates",
                    new_callable=AsyncMock, return_value=fake_candidates), \
-             patch("app.services.matcher.get_db", new_callable=AsyncMock, return_value=make_db_mock()), \
-             patch("app.services.matcher._call_groq", new_callable=AsyncMock) as mock_groq:
+             patch("app.services.matcher.get_db", new_callable=AsyncMock, return_value=make_db_mock()):
 
             result = await match_markets([poly], [kalshi])
 
         assert result == []
-        # _pass2_confirm should still be called (the LLM is called after checking confidence threshold inside _pass2_confirm)
 
     async def test_respects_max_confirmations_per_cycle(self):
-        """LLM calls are capped at _MAX_CONFIRMATIONS_PER_CYCLE."""
-        poly = make_market(id="poly:BASE", platform="polymarket")
-        kalshi = make_market(id="kalshi:BASE", platform="kalshi")
+        """LLM calls are capped at _MAX_CONFIRMATIONS_PER_CYCLE.
 
+        All candidate market IDs are included in the market lists so that
+        _pass2_confirm proceeds to call _call_groq on each one, confirming
+        the cap is enforced against real LLM invocations.
+        """
         cap = matcher_module._MAX_CONFIRMATIONS_PER_CYCLE
+        n = cap + 10
 
-        # Generate cap + 10 candidates, all with confidence above threshold
+        # All markets share the same end_date so the Pass 1.5 date pre-filter
+        # passes without filtering anything out
+        shared_end = datetime(2026, 3, 31, tzinfo=timezone.utc)
+
+        poly_markets = [
+            make_market(id=f"poly:P{i}", platform="polymarket", end_date=shared_end)
+            for i in range(n)
+        ]
+        kalshi_markets = [
+            make_market(id=f"kalshi:K{i}", platform="kalshi", end_date=shared_end)
+            for i in range(n)
+        ]
         fake_candidates = [
             {"poly_id": f"poly:P{i}", "kalshi_id": f"kalshi:K{i}", "confidence": 0.85}
-            for i in range(cap + 10)
+            for i in range(n)
         ]
-        # All Groq responses reject (so none enter confirmed list; we just check call count)
+        # Groq rejects all — we're counting calls, not confirmed results
         groq_response = '{"confirmed": false, "reasoning": "Different events"}'
 
         original_rejected = matcher_module._rejected_keys.copy()
         try:
-            # Clear rejected keys so none are pre-filtered
             matcher_module._rejected_keys.clear()
 
             with patch.object(matcher_module.settings, "GROQ_API_KEY", "fake-key"), \
@@ -327,10 +437,12 @@ class TestMatchMarkets:
                  patch("app.services.matcher._call_groq", new_callable=AsyncMock,
                        return_value=groq_response) as mock_groq:
 
-                await match_markets([poly], [kalshi])
+                await match_markets(poly_markets, kalshi_markets)
 
-            # Should not exceed the cap
+            # LLM calls must not exceed the cap
             assert mock_groq.call_count <= cap
+            # And we should have hit the cap (not stopped early for another reason)
+            assert mock_groq.call_count == cap
         finally:
             matcher_module._rejected_keys = original_rejected
 
@@ -346,3 +458,32 @@ class TestMatchMarkets:
             result = await match_markets([poly], [kalshi])
 
         assert result == []
+
+    async def test_date_mismatched_candidates_skipped(self):
+        """Pass 1.5: pairs with dates >24h apart are skipped without an LLM call."""
+        poly = make_market(
+            id="poly:DATE", platform="polymarket",
+            end_date=datetime(2026, 2, 28, tzinfo=timezone.utc),
+        )
+        kalshi = make_market(
+            id="kalshi:DATE", platform="kalshi",
+            end_date=datetime(2026, 3, 31, tzinfo=timezone.utc),
+        )
+        fake_candidates = [{"poly_id": "poly:DATE", "kalshi_id": "kalshi:DATE", "confidence": 0.9}]
+
+        original_rejected = matcher_module._rejected_keys.copy()
+        try:
+            matcher_module._rejected_keys.discard(_cache_key("poly:DATE", "kalshi:DATE"))
+
+            with patch.object(matcher_module.settings, "GROQ_API_KEY", "fake-key"), \
+                 patch("app.services.matcher.find_embedding_candidates",
+                       new_callable=AsyncMock, return_value=fake_candidates), \
+                 patch("app.services.matcher.get_db", new_callable=AsyncMock, return_value=make_db_mock()), \
+                 patch("app.services.matcher._call_groq", new_callable=AsyncMock) as mock_groq:
+
+                result = await match_markets([poly], [kalshi])
+
+            assert result == []
+            mock_groq.assert_not_called()
+        finally:
+            matcher_module._rejected_keys = original_rejected
