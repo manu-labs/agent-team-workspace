@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 KALSHI_MARKETS_URL = "https://api.elections.kalshi.com/trade-api/v2/markets"
 KALSHI_SERIES_URL = "https://api.elections.kalshi.com/trade-api/v2/series"
-_PAGE_SIZE = 100
+_PAGE_SIZE = 1000
 _RETRIES = 3
 _PLATFORM = "kalshi"
 
@@ -221,7 +221,7 @@ async def ingest_kalshi() -> dict[str, int]:
                     m.id, m.platform, m.question, m.category,
                     m.yes_price, m.no_price, m.volume,
                     m.end_date.isoformat() if m.end_date else None,
-                    m.url, json.dumps(m.raw_data), m.last_updated.isoformat(),
+                    m.url, '{}', m.last_updated.isoformat(),
                 ),
             )
             upserted += 1
