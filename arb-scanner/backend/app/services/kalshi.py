@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
@@ -23,15 +24,33 @@ _PAGE_SIZE = 1000
 _RETRIES = 3
 _PLATFORM = "kalshi"
 
+# Regex for slugifying series titles to match Kalshi's frontend URL format
+_NON_ALNUM_RE = re.compile(r"[^a-z0-9 ]")
+_MULTI_HYPHEN_RE = re.compile(r"-+")
+_WHITESPACE_RE = re.compile(r"\s+")
+
+
+def _slugify(text: str) -> str:
+    """Convert text to a URL slug matching Kalshi's frontend format.
+
+    E.g. "Counter-Strike 2 Game" -> "counterstrike-2-game"
+         "Elon Mars" -> "elon-mars"
+    """
+    text = text.lower().strip()
+    text = _NON_ALNUM_RE.sub("", text)
+    text = _WHITESPACE_RE.sub("-", text)
+    text = _MULTI_HYPHEN_RE.sub("-", text)
+    return text.strip("-")
+
 
 def _auth(method: str, path: str) -> dict:
     """Return Kalshi auth headers if API keys are configured, else empty dict."""
     return get_auth_headers(settings.KALSHI_API_KEY_ID, settings.KALSHI_API_KEY, method, path)
 
 
-async def _fetch_series_categories(client: httpx.AsyncClient) -> dict[str, str]:
-    """Fetch all Kalshi series and return series_ticker -> category name mapping."""
-    categories: dict[str, str] = {}
+async def _fetch_series_data(client: httpx.AsyncClient) -> dict[str, dict]:
+    """Fetch all Kalshi series and return series_ticker -> {category, title} mapping."""
+    series_data: dict[str, dict] = {}
     cursor = None
 
     while True:
@@ -59,33 +78,34 @@ async def _fetch_series_categories(client: httpx.AsyncClient) -> dict[str, str]:
                 data = resp.json()
                 for s in data.get("series") or []:
                     ticker = s.get("ticker") or s.get("series_ticker") or ""
-                    category = s.get("category") or s.get("title") or ""
+                    category = s.get("category") or ""
+                    title = s.get("title") or ""
                     if ticker:
-                        categories[ticker] = category
+                        series_data[ticker] = {"category": category, "title": title}
                 cursor = data.get("cursor")
                 series_count = len(data.get("series") or [])
                 success = True
                 if not cursor or series_count < _PAGE_SIZE:
-                    logger.info("Kalshi: loaded %d series categories", len(categories))
-                    return categories
+                    logger.info("Kalshi: loaded %d series (category + title)", len(series_data))
+                    return series_data
                 break
             except httpx.HTTPStatusError as exc:
                 logger.warning("Kalshi series HTTP %s (attempt %d)", exc.response.status_code, attempt + 1)
                 if exc.response.status_code < 500:
-                    return categories
+                    return series_data
             except httpx.HTTPError as exc:
                 logger.warning("Kalshi series network error (attempt %d): %s", attempt + 1, exc)
             await asyncio.sleep(backoff)
             backoff *= 2
 
         if not success:
-            logger.warning("Failed to fetch Kalshi series, proceeding without categories")
-            return categories
+            logger.warning("Failed to fetch Kalshi series, proceeding without series data")
+            return series_data
 
-    return categories
+    return series_data
 
 
-def _normalize(raw: dict, series_categories: dict[str, str]) -> NormalizedMarket | None:
+def _normalize(raw: dict, series_data: dict[str, dict]) -> NormalizedMarket | None:
     """Convert a raw Kalshi market dict to NormalizedMarket. Returns None if malformed."""
     try:
         ticker = raw.get("ticker")
@@ -127,9 +147,11 @@ def _normalize(raw: dict, series_categories: dict[str, str]) -> NormalizedMarket
         # Volume
         volume = float(raw.get("volume") or raw.get("volume_24h") or 0)
 
-        # Category from series mapping
+        # Series data (category + title for URL slug)
         series_ticker = raw.get("series_ticker") or ""
-        category = series_categories.get(series_ticker, "")
+        series_info = series_data.get(series_ticker, {})
+        category = series_info.get("category", "")
+        series_title = series_info.get("title", "")
 
         # End date
         end_date = None
@@ -140,9 +162,19 @@ def _normalize(raw: dict, series_categories: dict[str, str]) -> NormalizedMarket
             except (ValueError, AttributeError):
                 pass
 
-        # URL — Kalshi API doesn't expose a front-end URL or slug. Use search
-        # with order_by=querymatch for best results (per Supreme Leader).
-        url = f"https://kalshi.com/search?q={quote(title)}&order_by=querymatch"
+        # Build Kalshi frontend URL
+        # Format: /markets/{series_ticker}/{slug}/{event_ticker}
+        # Slug is the series title slugified (lowercased, non-alnum removed, spaces to hyphens)
+        event_ticker = (raw.get("event_ticker") or "").strip()
+        slug = _slugify(series_title) if series_title else ""
+
+        if series_ticker and slug and event_ticker:
+            url = f"https://kalshi.com/markets/{series_ticker.lower()}/{slug}/{event_ticker.lower()}"
+        elif series_ticker and slug:
+            url = f"https://kalshi.com/markets/{series_ticker.lower()}/{slug}"
+        else:
+            # Fallback to search if we can't build a proper URL
+            url = f"https://kalshi.com/search?q={quote(title)}&order_by=querymatch"
 
         # Build enriched embedding text — helps distinguish sports contracts where
         # multiple tickers share the same title (e.g. opposite sides of a game).
@@ -191,7 +223,7 @@ async def fetch_kalshi_markets() -> list[NormalizedMarket]:
         logger.info("Kalshi: no API keys configured, using unauthenticated requests")
 
     async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-        series_categories = await _fetch_series_categories(client)
+        series_data = await _fetch_series_data(client)
 
         markets: list[NormalizedMarket] = []
         low_volume_filtered = 0
@@ -242,7 +274,7 @@ async def fetch_kalshi_markets() -> list[NormalizedMarket]:
                 break
 
             for raw in raw_markets:
-                market = _normalize(raw, series_categories)
+                market = _normalize(raw, series_data)
                 if not market:
                     continue
 
