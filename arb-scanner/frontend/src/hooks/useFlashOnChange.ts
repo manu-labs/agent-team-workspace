@@ -8,7 +8,7 @@ export function useFlashOnChange(value: number): boolean {
     if (prevRef.current !== value) {
       prevRef.current = value;
       setFlash(true);
-      const timeout = setTimeout(() => setFlash(false), 600);
+      const timeout = setTimeout(() => setFlash(false), 3000);
       return () => clearTimeout(timeout);
     }
   }, [value]);
