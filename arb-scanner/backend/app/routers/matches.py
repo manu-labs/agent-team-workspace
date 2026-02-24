@@ -62,14 +62,15 @@ def _serialize_snapshot(row: dict) -> dict:
 @router.get("/")
 async def list_matches(
     min_spread: float = Query(0, ge=0, description="Minimum fee-adjusted spread"),
-    sort_by: str = Query("spread", description="Sort by: spread, volume, confidence, or end_date"),
+    min_volume: float = Query(0, ge=0, description="Minimum volume (min of both platforms)"),
+    sort_by: str = Query("volume", description="Sort by: spread, volume, confidence, or end_date"),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
 ):
     """List matched market pairs with fee-adjusted spreads and market details."""
     db = await get_db()
 
-    order = ORDER_MAP.get(sort_by, ORDER_MAP["spread"])
+    order = ORDER_MAP.get(sort_by, ORDER_MAP["volume"])
 
     cursor = await db.execute(
         f"""SELECT
@@ -86,9 +87,10 @@ async def list_matches(
         LEFT JOIN markets pm ON m.polymarket_id = pm.id
         LEFT JOIN markets km ON m.kalshi_id = km.id
         WHERE m.fee_adjusted_spread >= ?
+          AND MIN(m.polymarket_volume, m.kalshi_volume) >= ?
         ORDER BY {order}
         LIMIT ? OFFSET ?""",
-        [min_spread, limit, skip],
+        [min_spread, min_volume, limit, skip],
     )
     rows = await cursor.fetchall()
     return [_serialize_match(dict(row)) for row in rows]
