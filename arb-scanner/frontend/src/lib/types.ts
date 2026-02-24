@@ -15,6 +15,9 @@ export interface Match {
   kalshi_url: string;
   confidence: number;
   last_updated: string;
+  /** Per-match fee rates computed by the backend */
+  polymarket_fee: number;
+  kalshi_fee: number;
 }
 
 /** A historical price snapshot for charting spread over time */
