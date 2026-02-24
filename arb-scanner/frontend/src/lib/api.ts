@@ -34,18 +34,72 @@ async function request<T>(path: string, params?: Record<string, string>): Promis
   return res.json();
 }
 
+// ── Backend response shape (differs from frontend Match type) ─────────────────
+
+interface BackendMatch {
+  id: string;
+  question: string;
+  polymarket_yes: number;
+  kalshi_yes: number;
+  spread: number;
+  fee_adjusted_spread: number;
+  direction: "buy_kalshi_sell_poly" | "buy_poly_sell_kalshi";
+  polymarket_volume: number;
+  kalshi_volume: number;
+  polymarket_end_date: string;
+  kalshi_end_date: string;
+  polymarket_url: string;
+  kalshi_url: string;
+  confidence: number;
+  last_updated: string;
+}
+
+/**
+ * Normalize a backend match response to the frontend Match type.
+ * - Renames fields (e.g. polymarket_yes → poly_yes)
+ * - Computes missing fields (poly_no, kalshi_no)
+ * - Derives volume as min(polymarket_volume, kalshi_volume)
+ * - Picks the earlier of the two end dates
+ */
+function normalizeMatch(raw: BackendMatch): Match {
+  const endDate =
+    raw.polymarket_end_date < raw.kalshi_end_date
+      ? raw.polymarket_end_date
+      : raw.kalshi_end_date;
+
+  return {
+    id: raw.id,
+    question: raw.question,
+    poly_yes: raw.polymarket_yes,
+    poly_no: 1 - raw.polymarket_yes,
+    kalshi_yes: raw.kalshi_yes,
+    kalshi_no: 1 - raw.kalshi_yes,
+    raw_spread: raw.spread,
+    fee_adjusted_spread: raw.fee_adjusted_spread,
+    direction: raw.direction,
+    volume: Math.min(raw.polymarket_volume, raw.kalshi_volume),
+    end_date: endDate,
+    poly_url: raw.polymarket_url,
+    kalshi_url: raw.kalshi_url,
+    confidence: raw.confidence,
+    last_updated: raw.last_updated,
+  };
+}
+
 /** Fetch all matched market pairs, sorted by fee-adjusted spread */
 export async function getMatches(filters?: MatchFilters): Promise<Match[]> {
   const params: Record<string, string> = {};
   if (filters?.min_spread !== undefined) params.min_spread = String(filters.min_spread);
   if (filters?.sort) params.sort = filters.sort;
   if (filters?.direction) params.direction = filters.direction;
-  return request<Match[]>("/matches", params);
+  const raw = await request<BackendMatch[]>("/matches", params);
+  return raw.map(normalizeMatch);
 }
 
 /** Fetch a single match by ID */
 export async function getMatch(matchId: string): Promise<Match> {
-  return request<Match>(`/matches/${matchId}`);
+  const raw = await request<BackendMatch>(`/matches/${matchId}`);
+  return normalizeMatch(raw);
 }
 
 /** Fetch price history for a match */
