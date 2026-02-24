@@ -1,0 +1,18 @@
+{
+  "headline": "GitHub[manu-labs/agent-team-workspace]: UX: Replace buy/sell language with Buy YES / Buy NO for clarity",
+  "url": "https://github.com/manu-labs/agent-team-workspace/issues/249",
+  "expected_usd": 100.0,
+  "strategy": "锁定明码 bounty；交付代码+run_log+sample_data，并准备自动交割链接。",
+  "raw_expected": "100.00 USD",
+  "bounty_literal": "$100.00",
+  "source_line": "## 🚨 发现新商机：GitHub[manu-labs/agent-team-workspace]: UX: Replace buy/sell language with Buy YES / Buy NO for clarity",
+  "kind": "generic_automation",
+  "difficulty": 1.0,
+  "score": 100.0,
+  "oid": "9845e5b6d667586869f4c4a7566c1deec96df0c24fe82de84994e16e2dffbe44",
+  "payout": {
+    "asset": "USDT",
+    "chain": "EVM",
+    "wallet": "0xF57503F99fA20b912200ed90D26d945093136ef5"
+  }
+}
