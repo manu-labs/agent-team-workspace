@@ -26,6 +26,9 @@ EMBED_BATCH_SIZE = 2048
 _SIMILARITY_THRESHOLD = 0.85
 _RETRIES = 3
 
+# Active market filter used consistently across embed and candidate queries
+_ACTIVE_MARKET_FILTER = "volume > 0 AND yes_price BETWEEN 0.02 AND 0.98"
+
 
 def _question_hash(question: str) -> str:
     return hashlib.sha256(question.strip().lower().encode()).hexdigest()
@@ -96,7 +99,8 @@ async def embed_new_markets(db) -> int:
     await db.execute(
         """DELETE FROM market_embeddings
            WHERE market_id NOT IN (
-               SELECT id FROM markets WHERE volume > 0
+               SELECT id FROM markets
+               WHERE volume > 0 AND yes_price BETWEEN 0.02 AND 0.98
            )"""
     )
 
@@ -106,29 +110,25 @@ async def embed_new_markets(db) -> int:
            FROM markets m
            LEFT JOIN market_embeddings me ON me.market_id = m.id
            WHERE me.market_id IS NULL
-             AND m.volume > 0"""
+             AND m.volume > 0
+             AND m.yes_price BETWEEN 0.02 AND 0.98"""
     )
     new_markets = [dict(r) for r in await cursor.fetchall()]
 
-    # Find markets whose question changed (hash mismatch)
+    # Find markets whose question changed — single JOIN query, no N+1
     cursor = await db.execute(
-        """SELECT m.id, m.question
+        """SELECT m.id, m.question, me.question_hash
            FROM markets m
            JOIN market_embeddings me ON me.market_id = m.id
-           WHERE m.volume > 0"""
+           WHERE m.volume > 0
+             AND m.yes_price BETWEEN 0.02 AND 0.98"""
     )
-    existing = [dict(r) for r in await cursor.fetchall()]
-
-    # Collect embeddings for existing rows so we can check hashes
-    changed = []
-    for row in existing:
-        cursor2 = await db.execute(
-            "SELECT question_hash FROM market_embeddings WHERE market_id = ?",
-            [row["id"]],
-        )
-        emb_row = await cursor2.fetchone()
-        if emb_row and emb_row["question_hash"] != _question_hash(row["question"]):
-            changed.append(row)
+    rows = await cursor.fetchall()
+    changed = [
+        {"id": r["id"], "question": r["question"]}
+        for r in rows
+        if r["question_hash"] != _question_hash(r["question"])
+    ]
 
     to_embed = new_markets + changed
     if not to_embed:
