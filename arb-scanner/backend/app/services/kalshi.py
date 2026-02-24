@@ -149,8 +149,8 @@ async def fetch_kalshi_markets() -> list[NormalizedMarket]:
         series_categories = await _fetch_series_categories(client)
 
         markets: list[NormalizedMarket] = []
-        low_volume_filtered = 0
         expiry_filtered = 0
+        low_volume_filtered = 0
         cursor = None
 
         while True:
@@ -193,14 +193,18 @@ async def fetch_kalshi_markets() -> list[NormalizedMarket]:
                 if not market:
                     continue
 
+                # Skip markets with no end date, already expired, or too far out
+                if (
+                    market.end_date is None
+                    or market.end_date <= now
+                    or market.end_date > expiry_cutoff
+                ):
+                    expiry_filtered += 1
+                    continue
+
                 # Skip low-volume markets
                 if market.volume < settings.MIN_MATCH_VOLUME:
                     low_volume_filtered += 1
-                    continue
-
-                # Skip markets expiring beyond the cutoff window
-                if market.end_date is not None and market.end_date > expiry_cutoff:
-                    expiry_filtered += 1
                     continue
 
                 markets.append(market)
@@ -211,8 +215,8 @@ async def fetch_kalshi_markets() -> list[NormalizedMarket]:
                 break  # last page
 
     logger.info(
-        "Kalshi: %d markets kept (low-volume filtered: %d, expiry filtered: %d)",
-        len(markets), low_volume_filtered, expiry_filtered,
+        "Kalshi: %d markets kept (expired/too-far: %d, low-volume: %d)",
+        len(markets), expiry_filtered, low_volume_filtered,
     )
     return markets
 
