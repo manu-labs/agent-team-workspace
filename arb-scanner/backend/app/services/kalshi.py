@@ -3,11 +3,12 @@
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
 import httpx
 
+from app.config import settings
 from app.database import get_db
 from app.models.market import NormalizedMarket
 
@@ -140,12 +141,16 @@ def _normalize(raw: dict, series_categories: dict[str, str]) -> NormalizedMarket
 
 
 async def fetch_kalshi_markets() -> list[NormalizedMarket]:
-    """Fetch all open Kalshi markets with cursor pagination and category enrichment."""
+    """Fetch Kalshi markets expiring within MATCH_EXPIRY_DAYS with MIN_MATCH_VOLUME."""
+    now = datetime.now(timezone.utc)
+    expiry_cutoff = now + timedelta(days=settings.MATCH_EXPIRY_DAYS)
+
     async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
         series_categories = await _fetch_series_categories(client)
 
         markets: list[NormalizedMarket] = []
-        filtered = 0
+        low_volume_filtered = 0
+        expiry_filtered = 0
         cursor = None
 
         while True:
@@ -185,11 +190,20 @@ async def fetch_kalshi_markets() -> list[NormalizedMarket]:
 
             for raw in raw_markets:
                 market = _normalize(raw, series_categories)
-                if market:
-                    if market.volume > 0:
-                        markets.append(market)
-                    else:
-                        filtered += 1
+                if not market:
+                    continue
+
+                # Skip low-volume markets
+                if market.volume < settings.MIN_MATCH_VOLUME:
+                    low_volume_filtered += 1
+                    continue
+
+                # Skip markets expiring beyond the cutoff window
+                if market.end_date is not None and market.end_date > expiry_cutoff:
+                    expiry_filtered += 1
+                    continue
+
+                markets.append(market)
 
             logger.debug("Kalshi: fetched %d markets (cursor=%s)", len(raw_markets), cursor)
 
@@ -197,8 +211,8 @@ async def fetch_kalshi_markets() -> list[NormalizedMarket]:
                 break  # last page
 
     logger.info(
-        "Kalshi: fetched %d active markets (%d zero-volume filtered)",
-        len(markets), filtered,
+        "Kalshi: %d markets kept (low-volume filtered: %d, expiry filtered: %d)",
+        len(markets), low_volume_filtered, expiry_filtered,
     )
     return markets
 
