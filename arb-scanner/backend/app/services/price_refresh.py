@@ -148,6 +148,16 @@ async def _fetch_poly_price(client, semaphore, market_id: str, prices: dict) -> 
             if len(outcome_prices) < 2:
                 return False
 
+            # Check if outcomes[0] is "No" and swap prices — same fix as polymarket.py (PR #246)
+            outcomes = data.get("outcomes") or []
+            if isinstance(outcomes, str):
+                try:
+                    outcomes = json.loads(outcomes)
+                except json.JSONDecodeError:
+                    outcomes = []
+            if len(outcomes) >= 2 and str(outcomes[0]).strip().lower() == "no":
+                outcome_prices = [outcome_prices[1], outcome_prices[0]]
+
             prices[market_id] = {
                 "yes_price": float(outcome_prices[0]),
                 "no_price": float(outcome_prices[1]),
