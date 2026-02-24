@@ -33,7 +33,7 @@ export default {
       animation: {
         "pulse-slow": "pulse 3s ease-in-out infinite",
         "scan": "scan 4s linear infinite",
-        "flash-green": "flash-green 600ms ease-out",
+        "flash-green": "flash-green 3000ms ease-out",
       },
       keyframes: {
         scan: {
