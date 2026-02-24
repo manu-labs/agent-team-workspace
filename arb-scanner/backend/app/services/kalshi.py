@@ -167,6 +167,11 @@ async def fetch_kalshi_markets() -> list[NormalizedMarket]:
     now = datetime.now(timezone.utc)
     expiry_cutoff = now + timedelta(days=settings.MATCH_EXPIRY_DAYS)
 
+    # Server-side timestamp filters (Unix seconds) — only fetch markets closing
+    # between now and our expiry cutoff, so the API returns far fewer pages.
+    min_close_ts = int(now.timestamp())
+    max_close_ts = int(expiry_cutoff.timestamp())
+
     authenticated = bool(settings.KALSHI_API_KEY_ID and settings.KALSHI_API_KEY)
     if authenticated:
         logger.info("Kalshi: using RSA-PSS authenticated requests")
@@ -177,12 +182,16 @@ async def fetch_kalshi_markets() -> list[NormalizedMarket]:
         series_categories = await _fetch_series_categories(client)
 
         markets: list[NormalizedMarket] = []
-        expiry_filtered = 0
         low_volume_filtered = 0
         cursor = None
 
         while True:
-            params: dict = {"status": "open", "limit": _PAGE_SIZE}
+            params: dict = {
+                "status": "open",
+                "limit": _PAGE_SIZE,
+                "min_close_ts": min_close_ts,
+                "max_close_ts": max_close_ts,
+            }
             if cursor:
                 params["cursor"] = cursor
 
@@ -225,15 +234,6 @@ async def fetch_kalshi_markets() -> list[NormalizedMarket]:
                 if not market:
                     continue
 
-                # Skip markets with no end date, already expired, or too far out
-                if (
-                    market.end_date is None
-                    or market.end_date <= now
-                    or market.end_date > expiry_cutoff
-                ):
-                    expiry_filtered += 1
-                    continue
-
                 # Skip low-volume markets
                 if market.volume < settings.MIN_MATCH_VOLUME:
                     low_volume_filtered += 1
@@ -247,8 +247,8 @@ async def fetch_kalshi_markets() -> list[NormalizedMarket]:
                 break  # last page
 
     logger.info(
-        "Kalshi: %d markets kept (expired/too-far: %d, low-volume: %d)",
-        len(markets), expiry_filtered, low_volume_filtered,
+        "Kalshi: %d markets kept (low-volume: %d) [server-filtered to %d-%d day window]",
+        len(markets), low_volume_filtered, 0, settings.MATCH_EXPIRY_DAYS,
     )
     return markets
 
@@ -304,5 +304,3 @@ async def ingest_kalshi() -> dict[str, int]:
         len(markets), upserted, errors,
     )
     return {"fetched": len(markets), "upserted": upserted, "errors": errors}
-
-
