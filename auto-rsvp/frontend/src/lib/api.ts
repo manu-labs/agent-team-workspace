@@ -21,7 +21,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     ...options,
   });
 
-  if (!res.ok) {
+  if (res.ok === false) {
     const body = await res.text();
     throw new ApiError(body || res.statusText, res.status);
   }
@@ -65,7 +65,7 @@ export async function getEvents(params?: {
   search?: string;
 }): Promise<Event[]> {
   const sp = new URLSearchParams();
-  if (params?.page) sp.set("page", String(params.page));
+  if (params?.page && params?.limit) sp.set("skip", String((params.page - 1) * params.limit));
   if (params?.limit) sp.set("limit", String(params.limit));
   if (params?.platform) sp.set("platform", params.platform);
   if (params?.search) sp.set("search", params.search);
