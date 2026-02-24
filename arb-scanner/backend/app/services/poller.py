@@ -1,4 +1,11 @@
-"""Background poller — periodic market ingestion, matching, and price history recording."""
+"""Background poller — two-loop architecture:
+
+  • Discovery loop  (every DISCOVERY_INTERVAL_SECONDS, default 30 min):
+      full ingest → embed → LLM match → upsert matches
+
+  • Price-refresh loop  (every PRICE_REFRESH_INTERVAL_SECONDS, default 15 s):
+      fetch current prices for matched markets only → update spreads + snapshots
+"""
 
 import asyncio
 import logging
@@ -11,45 +18,50 @@ from app.services.embeddings import embed_new_markets
 from app.services.kalshi import ingest_kalshi
 from app.services.matcher import match_markets
 from app.services.polymarket import ingest_polymarket
+from app.services.price_refresh import refresh_prices
 
 logger = logging.getLogger(__name__)
 
 _stop_event: asyncio.Event | None = None
-_poll_task: asyncio.Task | None = None
+_discovery_task: asyncio.Task | None = None
+_refresh_task: asyncio.Task | None = None
 _cycle_lock = asyncio.Lock()
 
-# Tracks last completed cycle for the status endpoint
+# Tracks last completed cycle/refresh for the status endpoint
 _last_run: dict | None = None
+_last_refresh: dict | None = None
 
 
 async def start() -> None:
-    """Start the background poll loop as an asyncio task."""
-    global _stop_event, _poll_task
+    """Start the discovery loop and price-refresh loop as asyncio tasks."""
+    global _stop_event, _discovery_task, _refresh_task
     _stop_event = asyncio.Event()
-    _poll_task = asyncio.create_task(_poll_loop(), name="arb-scanner-poller")
+    _discovery_task = asyncio.create_task(_discovery_loop(), name="discovery-loop")
+    _refresh_task = asyncio.create_task(_price_refresh_loop(), name="price-refresh-loop")
     logger.info(
-        "Poller started — poll every %ds, match every %ds",
-        settings.POLL_INTERVAL_SECONDS,
-        settings.MATCH_INTERVAL_SECONDS,
+        "Poller started — discovery every %ds, price refresh every %ds",
+        settings.DISCOVERY_INTERVAL_SECONDS,
+        settings.PRICE_REFRESH_INTERVAL_SECONDS,
     )
 
 
 async def stop() -> None:
-    """Signal the poll loop to stop and wait for it to finish."""
-    global _stop_event, _poll_task
+    """Signal both loops to stop and wait for them to finish."""
+    global _stop_event, _discovery_task, _refresh_task
     if _stop_event:
         _stop_event.set()
-    if _poll_task and not _poll_task.done():
-        try:
-            await asyncio.wait_for(_poll_task, timeout=10)
-        except asyncio.TimeoutError:
-            logger.warning("Poller did not stop cleanly within 10s — cancelling")
-            _poll_task.cancel()
+    for task in (_discovery_task, _refresh_task):
+        if task and not task.done():
+            try:
+                await asyncio.wait_for(task, timeout=10)
+            except asyncio.TimeoutError:
+                logger.warning("Task %s did not stop cleanly within 10s — cancelling", task.get_name())
+                task.cancel()
     logger.info("Poller stopped")
 
 
 async def trigger_now() -> dict:
-    """Trigger an immediate poll cycle (for the manual /poll endpoint).
+    """Trigger an immediate discovery cycle (for the manual /poll endpoint).
 
     Returns the cycle result, or a busy message if a cycle is already running.
     """
@@ -71,30 +83,77 @@ async def trigger_now() -> dict:
 
 async def get_status() -> dict:
     """Return current poller status and last run metrics."""
-    running = _poll_task is not None and not _poll_task.done()
+    discovery_running = _discovery_task is not None and not _discovery_task.done()
+    refresh_running = _refresh_task is not None and not _refresh_task.done()
     return {
-        "running": running,
+        "running": discovery_running,
+        "refresh_running": refresh_running,
         "last_run": _last_run,
-        "poll_interval_seconds": settings.POLL_INTERVAL_SECONDS,
+        "last_refresh": _last_refresh,
+        "discovery_interval_seconds": settings.DISCOVERY_INTERVAL_SECONDS,
+        "price_refresh_interval_seconds": settings.PRICE_REFRESH_INTERVAL_SECONDS,
         "match_interval_seconds": settings.MATCH_INTERVAL_SECONDS,
     }
 
 
-async def _poll_loop() -> None:
-    """Main poll loop — runs until stop() is called."""
+async def _discovery_loop() -> None:
+    """Discovery loop — runs until stop() is called.
+
+    Fires every DISCOVERY_INTERVAL_SECONDS: full ingest, embed, and match.
+    """
     last_match_time = datetime.min.replace(tzinfo=timezone.utc)
 
     while not _stop_event.is_set():
         try:
             last_match_time = await _run_cycle(last_match_time)
         except Exception as exc:
-            logger.error("Poll cycle failed unexpectedly: %s", exc, exc_info=True)
+            logger.error("Discovery cycle failed unexpectedly: %s", exc, exc_info=True)
 
-        # Sleep for poll interval, but wake immediately if stop is requested
+        # Sleep for discovery interval, but wake immediately if stop is requested
         try:
             await asyncio.wait_for(
                 asyncio.shield(_stop_event.wait()),
-                timeout=settings.POLL_INTERVAL_SECONDS,
+                timeout=settings.DISCOVERY_INTERVAL_SECONDS,
+            )
+            break  # stop was requested during sleep
+        except asyncio.TimeoutError:
+            pass  # normal — continue looping
+
+
+async def _price_refresh_loop() -> None:
+    """Price-refresh loop — runs until stop() is called.
+
+    Fires every PRICE_REFRESH_INTERVAL_SECONDS: fetches live prices for matched
+    markets only (typically ~50-100 markets), updates spreads, and records snapshots.
+    Starts after a short initial delay to let the first discovery cycle populate matches.
+    """
+    global _last_refresh
+
+    # Short initial delay so the first discovery cycle can run first
+    try:
+        await asyncio.wait_for(
+            asyncio.shield(_stop_event.wait()),
+            timeout=10,
+        )
+        return  # stop was requested during initial delay
+    except asyncio.TimeoutError:
+        pass
+
+    while not _stop_event.is_set():
+        try:
+            db = await get_db()
+            result = await refresh_prices(db)
+            _last_refresh = {
+                "at": datetime.now(timezone.utc).isoformat(),
+                **result,
+            }
+        except Exception as exc:
+            logger.error("Price refresh failed unexpectedly: %s", exc, exc_info=True)
+
+        try:
+            await asyncio.wait_for(
+                asyncio.shield(_stop_event.wait()),
+                timeout=settings.PRICE_REFRESH_INTERVAL_SECONDS,
             )
             break  # stop was requested during sleep
         except asyncio.TimeoutError:
@@ -102,14 +161,14 @@ async def _poll_loop() -> None:
 
 
 async def _run_cycle(last_match_time: datetime) -> datetime:
-    """Execute one full poll cycle under a lock (prevents concurrent runs).
+    """Execute one full discovery cycle under a lock (prevents concurrent runs).
 
     Steps:
       1. Ingest markets from Polymarket and Kalshi
       2. Embed new/changed markets (delta embed)
       3. Run LLM matcher if match interval elapsed or new markets appeared
-      4. Refresh spreads for all existing matches with current prices
-      5. Record price history snapshots for all active matches
+
+    Spread updates and price history snapshots are handled by the price-refresh loop.
 
     Returns updated last_match_time.
     """
@@ -117,7 +176,7 @@ async def _run_cycle(last_match_time: datetime) -> datetime:
 
     async with _cycle_lock:
         started_at = datetime.now(timezone.utc)
-        logger.info("Poll cycle starting")
+        logger.info("Discovery cycle starting")
 
         db = await get_db()
 
@@ -192,12 +251,6 @@ async def _run_cycle(last_match_time: datetime) -> datetime:
                 int(seconds_since_match), settings.MATCH_INTERVAL_SECONDS,
             )
 
-        # --- Step 4: Refresh spreads for all existing matches ---
-        spreads_updated = await _update_spreads(db)
-
-        # --- Step 5: Record price history snapshots ---
-        snapshots = await _record_snapshots(db)
-
         await db.commit()
 
         elapsed = (datetime.now(timezone.utc) - started_at).total_seconds()
@@ -208,94 +261,7 @@ async def _run_cycle(last_match_time: datetime) -> datetime:
             "kalshi": kalshi_result,
             "embed_count": embed_count,
             "match_result": match_result,
-            "spreads_updated": spreads_updated,
-            "snapshots_recorded": snapshots,
             "last_match_at": last_match_time.isoformat(),
         }
-        logger.info("Poll cycle complete in %.1fs", elapsed)
+        logger.info("Discovery cycle complete in %.1fs", elapsed)
         return last_match_time
-
-
-async def _update_spreads(db) -> int:
-    """Refresh spread data for all existing matches using current market prices.
-
-    Called every cycle so the dashboard always shows fresh numbers even between
-    full matcher runs.
-    """
-    cursor = await db.execute(
-        "SELECT id, polymarket_id, kalshi_id FROM matches"
-    )
-    matches = await cursor.fetchall()
-    updated = 0
-
-    for match in matches:
-        match_id = match["id"]
-
-        poly_cur = await db.execute(
-            "SELECT yes_price, volume FROM markets WHERE id = ?",
-            [match["polymarket_id"]],
-        )
-        poly_row = await poly_cur.fetchone()
-
-        kalshi_cur = await db.execute(
-            "SELECT yes_price, volume FROM markets WHERE id = ?",
-            [match["kalshi_id"]],
-        )
-        kalshi_row = await kalshi_cur.fetchone()
-
-        if not poly_row or not kalshi_row:
-            continue  # one side delisted or not yet ingested
-
-        spread_data = calculate_spread(poly_row["yes_price"], kalshi_row["yes_price"])
-
-        await db.execute(
-            """UPDATE matches SET
-                spread              = ?,
-                fee_adjusted_spread = ?,
-                polymarket_yes      = ?,
-                kalshi_yes          = ?,
-                polymarket_volume   = ?,
-                kalshi_volume       = ?,
-                last_updated        = ?
-               WHERE id = ?""",
-            (
-                spread_data["raw_spread"],
-                spread_data["fee_adjusted_spread"],
-                poly_row["yes_price"],
-                kalshi_row["yes_price"],
-                poly_row["volume"],
-                kalshi_row["volume"],
-                datetime.now(timezone.utc).isoformat(),
-                match_id,
-            ),
-        )
-        updated += 1
-
-    return updated
-
-
-async def _record_snapshots(db) -> int:
-    """Write a price_history row for every active match in this cycle."""
-    cursor = await db.execute(
-        """SELECT id, polymarket_yes, kalshi_yes, spread, fee_adjusted_spread
-           FROM matches"""
-    )
-    matches = await cursor.fetchall()
-    now = datetime.now(timezone.utc).isoformat()
-
-    for match in matches:
-        await db.execute(
-            """INSERT INTO price_history
-               (match_id, polymarket_yes, kalshi_yes, spread, fee_adjusted_spread, recorded_at)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (
-                match["id"],
-                match["polymarket_yes"],
-                match["kalshi_yes"],
-                match["spread"],
-                match["fee_adjusted_spread"],
-                now,
-            ),
-        )
-
-    return len(matches)
