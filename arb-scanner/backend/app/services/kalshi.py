@@ -171,7 +171,7 @@ def _normalize(raw: dict, series_data: dict[str, dict]) -> NormalizedMarket | No
         # Slug is the series title slugified (lowercased, non-alnum removed, spaces to hyphens)
         slug = _slugify(series_title) if series_title else ""
 
-        if series_ticker and slug and event_ticker and event_ticker != series_ticker:
+        if series_ticker and slug and event_ticker:
             url = f"https://kalshi.com/markets/{series_ticker.lower()}/{slug}/{event_ticker.lower()}"
         elif series_ticker and slug:
             url = f"https://kalshi.com/markets/{series_ticker.lower()}/{slug}"
