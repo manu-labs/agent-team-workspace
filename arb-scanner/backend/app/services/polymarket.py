@@ -3,10 +3,11 @@
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 
+from app.config import settings
 from app.database import get_db
 from app.models.market import NormalizedMarket
 
@@ -151,10 +152,14 @@ async def _fetch_page(client: httpx.AsyncClient, offset: int) -> list[dict]:
 
 
 async def fetch_polymarket_markets() -> list[NormalizedMarket]:
-    """Fetch all active Polymarket markets from the Gamma API with offset pagination."""
+    """Fetch active Polymarket markets expiring within MATCH_EXPIRY_DAYS with MIN_MATCH_VOLUME."""
     markets: list[NormalizedMarket] = []
-    filtered = 0
+    expiry_filtered = 0
+    low_volume_filtered = 0
     offset = 0
+
+    now = datetime.now(timezone.utc)
+    expiry_cutoff = now + timedelta(days=settings.MATCH_EXPIRY_DAYS)
 
     async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
         while True:
@@ -164,11 +169,24 @@ async def fetch_polymarket_markets() -> list[NormalizedMarket]:
 
             for raw in raw_markets:
                 market = _normalize(raw)
-                if market:
-                    if market.volume > 0:
-                        markets.append(market)
-                    else:
-                        filtered += 1
+                if not market:
+                    continue
+
+                # Skip markets with no end date, already expired, or too far out
+                if (
+                    market.end_date is None
+                    or market.end_date <= now
+                    or market.end_date > expiry_cutoff
+                ):
+                    expiry_filtered += 1
+                    continue
+
+                # Skip low-volume markets
+                if market.volume < settings.MIN_MATCH_VOLUME:
+                    low_volume_filtered += 1
+                    continue
+
+                markets.append(market)
 
             logger.debug("Polymarket: fetched %d markets at offset=%d", len(raw_markets), offset)
 
@@ -177,8 +195,8 @@ async def fetch_polymarket_markets() -> list[NormalizedMarket]:
             offset += _PAGE_SIZE
 
     logger.info(
-        "Polymarket: fetched %d active markets (%d zero-volume filtered)",
-        len(markets), filtered,
+        "Polymarket: %d markets kept (expired/too-far: %d, low-volume: %d)",
+        len(markets), expiry_filtered, low_volume_filtered,
     )
     return markets
 
