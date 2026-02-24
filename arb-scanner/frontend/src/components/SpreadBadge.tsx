@@ -1,5 +1,3 @@
-import type { Match } from "../lib/types";
-
 interface SpreadBadgeProps {
   spread: number; // fee_adjusted_spread in decimal (e.g. 0.0332)
   /** Show as inline badge (default) or full-width block */
