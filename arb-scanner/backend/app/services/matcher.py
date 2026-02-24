@@ -79,33 +79,6 @@ async def _call_groq(prompt: str, system: str = "") -> str | None:
     return None
 
 
-def _parse_json_response(text: str) -> list[dict]:
-    """Extract JSON array from LLM response, handling markdown fences."""
-    text = text.strip()
-    if text.startswith("```"):
-        lines = text.split("\n")
-        start = 1
-        end = len(lines)
-        for i in range(1, len(lines)):
-            if lines[i].strip() == "```":
-                end = i
-                break
-        text = "\n".join(lines[start:end])
-    try:
-        result = json.loads(text)
-        return result if isinstance(result, list) else []
-    except json.JSONDecodeError:
-        start = text.find("[")
-        end = text.rfind("]")
-        if start >= 0 and end > start:
-            try:
-                return json.loads(text[start:end + 1])
-            except json.JSONDecodeError:
-                pass
-    logger.warning("Failed to parse JSON from LLM response")
-    return []
-
-
 async def _get_cached_match_keys(db) -> set[str]:
     """Load cache keys of existing confirmed matches."""
     cursor = await db.execute("SELECT polymarket_id, kalshi_id FROM matches")
