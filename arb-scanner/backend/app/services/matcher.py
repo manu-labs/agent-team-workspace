@@ -26,6 +26,7 @@ GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = "llama-3.3-70b-versatile"
 _CONFIDENCE_THRESHOLD = 0.7
 _BATCH_SIZE = 30
+_MAX_BATCHES_PER_CATEGORY = 5
 _RETRIES = 3
 
 
@@ -66,7 +67,8 @@ async def _call_groq(prompt: str, system: str = "") -> str | None:
                 data = resp.json()
                 return data["choices"][0]["message"]["content"]
             except httpx.HTTPStatusError as exc:
-                logger.warning("Groq HTTP %s (attempt %d)", exc.response.status_code, attempt + 1)
+                body = exc.response.text[:500] if exc.response else "no body"
+                logger.warning("Groq HTTP %s (attempt %d): %s", exc.response.status_code, attempt + 1, body)
                 if exc.response.status_code < 500:
                     break
             except (httpx.HTTPError, KeyError, IndexError) as exc:
@@ -157,7 +159,11 @@ async def _pass1_candidates(
         if not poly_list or not kalshi_list:
             continue
 
+        batch_count = 0
         for batch_start in range(0, max(len(poly_list), len(kalshi_list)), _BATCH_SIZE):
+            if batch_count >= _MAX_BATCHES_PER_CATEGORY:
+                logger.info("Pass 1 [%s]: hit batch limit (%d), skipping remaining", cat, _MAX_BATCHES_PER_CATEGORY)
+                break
             poly_batch = poly_list[batch_start:batch_start + _BATCH_SIZE]
             kalshi_batch = kalshi_list[batch_start:batch_start + _BATCH_SIZE]
             if not poly_batch or not kalshi_batch:
@@ -188,7 +194,8 @@ If no matches found, return [].
             if response:
                 candidates = _parse_json_response(response)
                 all_candidates.extend(candidates)
-                logger.debug("Pass 1 [%s]: found %d candidates", cat, len(candidates))
+                logger.info("Pass 1 [%s] batch %d: found %d candidates", cat, batch_count, len(candidates))
+            batch_count += 1
 
     logger.info("Pass 1 complete: %d total candidates across all categories", len(all_candidates))
     return all_candidates
