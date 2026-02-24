@@ -5,13 +5,15 @@ issues in Railway network -- same lesson from Auto-RSVP).
 
 Pass 1: Candidate discovery -- batch by category, ask LLM to identify pairs.
 Pass 2: Confirmation -- verify resolution criteria match for high-confidence candidates.
+
+Interface: match_markets(poly_markets, kalshi_markets) -> list[dict]
+Called by the background poller which handles DB upsert.
 """
 
 import hashlib
 import json
 import logging
 from collections import defaultdict
-from datetime import datetime, timezone
 
 import httpx
 
@@ -27,8 +29,8 @@ _BATCH_SIZE = 30
 _RETRIES = 3
 
 
-def _cache_key(poly_id: str, kalshi_id: str, poly_q: str, kalshi_q: str) -> str:
-    raw = f"{poly_id}|{kalshi_id}|{poly_q}|{kalshi_q}"
+def _cache_key(poly_id: str, kalshi_id: str) -> str:
+    raw = f"{poly_id}|{kalshi_id}"
     return hashlib.md5(raw.encode()).hexdigest()
 
 
@@ -103,38 +105,50 @@ def _parse_json_response(text: str) -> list[dict]:
     return []
 
 
-async def _get_existing_matches(db) -> dict[str, dict]:
-    """Load existing confirmed matches keyed by cache_key."""
-    cursor = await db.execute("SELECT * FROM matches")
+async def _get_cached_match_keys(db) -> set[str]:
+    """Load cache keys of existing confirmed matches."""
+    cursor = await db.execute("SELECT polymarket_id, kalshi_id FROM matches")
     rows = await cursor.fetchall()
-    existing = {}
-    for row in rows:
-        r = dict(row)
-        key = _cache_key(r["polymarket_id"], r["kalshi_id"], "", "")
-        existing[key] = r
-    return existing
+    return {_cache_key(r["polymarket_id"], r["kalshi_id"]) for r in rows}
+
+
+def _market_to_dict(market) -> dict:
+    """Convert a NormalizedMarket (or similar) to a plain dict for prompt building."""
+    if isinstance(market, dict):
+        return market
+    return {
+        "id": market.id,
+        "question": market.question,
+        "category": getattr(market, "category", ""),
+        "yes_price": market.yes_price,
+        "no_price": market.no_price,
+        "volume": getattr(market, "volume", 0),
+        "url": getattr(market, "url", ""),
+    }
 
 
 async def _pass1_candidates(
-    poly_markets: list[dict],
-    kalshi_markets: list[dict],
+    poly_markets: list,
+    kalshi_markets: list,
 ) -> list[dict]:
     """Pass 1: Batch markets by category and ask LLM to find matching pairs."""
     if not poly_markets or not kalshi_markets:
         return []
 
+    poly_dicts = [_market_to_dict(m) for m in poly_markets]
+    kalshi_dicts = [_market_to_dict(m) for m in kalshi_markets]
+
     poly_by_cat = defaultdict(list)
     kalshi_by_cat = defaultdict(list)
 
-    for m in poly_markets:
+    for m in poly_dicts:
         cat = (m.get("category") or "uncategorized").lower().strip()
         poly_by_cat[cat].append(m)
-    for m in kalshi_markets:
+    for m in kalshi_dicts:
         cat = (m.get("category") or "uncategorized").lower().strip()
         kalshi_by_cat[cat].append(m)
 
     all_candidates = []
-
     all_cats = set(poly_by_cat.keys()) | set(kalshi_by_cat.keys())
 
     for cat in all_cats:
@@ -168,7 +182,7 @@ Identify pairs that are asking the same underlying question (even if worded diff
 Return ONLY a JSON array. Each element: {{"poly_id": "...", "kalshi_id": "...", "confidence": 0.95, "reasoning": "..."}}
 If no matches found, return [].
 """
-            system = "You are a prediction market analyst. Match markets across platforms that ask the same question. Be precise — only match markets with the same resolution criteria. Return valid JSON only."
+            system = "You are a prediction market analyst. Match markets across platforms that ask the same question. Be precise -- only match markets with the same resolution criteria. Return valid JSON only."
 
             response = await _call_groq(prompt, system)
             if response:
@@ -180,11 +194,7 @@ If no matches found, return [].
     return all_candidates
 
 
-async def _pass2_confirm(
-    candidate: dict,
-    poly_markets_by_id: dict[str, dict],
-    kalshi_markets_by_id: dict[str, dict],
-) -> dict | None:
+async def _pass2_confirm(candidate: dict, markets_by_id: dict) -> dict | None:
     """Pass 2: Confirm a candidate pair using full market details."""
     poly_id = candidate.get("poly_id", "")
     kalshi_id = candidate.get("kalshi_id", "")
@@ -193,8 +203,8 @@ async def _pass2_confirm(
     if confidence < _CONFIDENCE_THRESHOLD:
         return None
 
-    poly = poly_markets_by_id.get(poly_id)
-    kalshi = kalshi_markets_by_id.get(kalshi_id)
+    poly = markets_by_id.get(poly_id)
+    kalshi = markets_by_id.get(kalshi_id)
     if not poly or not kalshi:
         return None
 
@@ -202,12 +212,12 @@ async def _pass2_confirm(
 
 Polymarket:
   ID: {poly_id}
-  Question: {poly['question']}
+  Question: {poly.get('question', '')}
   Category: {poly.get('category', '')}
 
 Kalshi:
   ID: {kalshi_id}
-  Question: {kalshi['question']}
+  Question: {kalshi.get('question', '')}
   Category: {kalshi.get('category', '')}
 
 Are these the same market? Would they resolve the same way?
@@ -240,101 +250,78 @@ Return JSON: {{"confirmed": true/false, "reasoning": "...", "differences": "any 
 
     if result.get("confirmed"):
         return {
-            "poly_id": poly_id,
+            "polymarket_id": poly_id,
             "kalshi_id": kalshi_id,
             "confidence": confidence,
-            "reasoning": result.get("reasoning", ""),
-            "differences": result.get("differences", ""),
+            "question": poly.get("question", ""),
+            "polymarket_yes": poly.get("yes_price", 0),
+            "kalshi_yes": kalshi.get("yes_price", 0),
         }
     return None
 
 
-async def match_markets() -> dict[str, int]:
-    """Run two-pass matching on all markets in the database.
+async def match_markets(
+    polymarket_markets: list,
+    kalshi_markets: list,
+) -> list[dict]:
+    """Run two-pass matching on the provided market lists.
 
-    Returns: {"candidates": N, "confirmed": N, "cached": N, "errors": N}
+    Args:
+        polymarket_markets: List of NormalizedMarket or dicts from Polymarket
+        kalshi_markets: List of NormalizedMarket or dicts from Kalshi
+
+    Returns:
+        List of confirmed match dicts, each with:
+        polymarket_id, kalshi_id, confidence, question, polymarket_yes, kalshi_yes
     """
     if not settings.GROQ_API_KEY:
         logger.warning("GROQ_API_KEY not set, skipping matching")
-        return {"candidates": 0, "confirmed": 0, "cached": 0, "errors": 0}
+        return []
+
+    if not polymarket_markets or not kalshi_markets:
+        logger.info("No markets to match (poly=%d, kalshi=%d)",
+                     len(polymarket_markets), len(kalshi_markets))
+        return []
 
     db = await get_db()
+    cached_keys = await _get_cached_match_keys(db)
 
-    cursor = await db.execute("SELECT * FROM markets WHERE platform = 'polymarket'")
-    poly_rows = [dict(r) for r in await cursor.fetchall()]
-    cursor = await db.execute("SELECT * FROM markets WHERE platform = 'kalshi'")
-    kalshi_rows = [dict(r) for r in await cursor.fetchall()]
+    # Build lookup by ID for pass 2
+    all_markets = {}
+    for m in polymarket_markets:
+        d = _market_to_dict(m)
+        all_markets[d["id"]] = d
+    for m in kalshi_markets:
+        d = _market_to_dict(m)
+        all_markets[d["id"]] = d
 
-    if not poly_rows or not kalshi_rows:
-        logger.info("No markets to match (poly=%d, kalshi=%d)", len(poly_rows), len(kalshi_rows))
-        return {"candidates": 0, "confirmed": 0, "cached": 0, "errors": 0}
+    # Pass 1: Candidate discovery
+    candidates = await _pass1_candidates(polymarket_markets, kalshi_markets)
 
-    poly_by_id = {m["id"]: m for m in poly_rows}
-    kalshi_by_id = {m["id"]: m for m in kalshi_rows}
-
-    existing = await _get_existing_matches(db)
+    # Pass 2: Confirmation (skip cached)
+    confirmed = []
     cached = 0
-
-    candidates = await _pass1_candidates(poly_rows, kalshi_rows)
-
-    confirmed = 0
     errors = 0
 
     for cand in candidates:
         poly_id = cand.get("poly_id", "")
         kalshi_id = cand.get("kalshi_id", "")
-        key = _cache_key(poly_id, kalshi_id, "", "")
+        key = _cache_key(poly_id, kalshi_id)
 
-        if key in existing:
+        if key in cached_keys:
             cached += 1
             continue
 
         try:
-            result = await _pass2_confirm(cand, poly_by_id, kalshi_by_id)
+            result = await _pass2_confirm(cand, all_markets)
             if result:
-                poly_m = poly_by_id.get(poly_id, {})
-                kalshi_m = kalshi_by_id.get(kalshi_id, {})
-
-                from app.services.calculator import calculate_spread
-                spread_info = calculate_spread(
-                    poly_m.get("yes_price", 0),
-                    kalshi_m.get("yes_price", 0),
-                )
-
-                now = datetime.now(timezone.utc).isoformat()
-                await db.execute(
-                    """INSERT INTO matches
-                    (polymarket_id, kalshi_id, confidence, spread, fee_adjusted_spread,
-                     polymarket_yes, kalshi_yes, polymarket_volume, kalshi_volume,
-                     question, last_updated)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(polymarket_id, kalshi_id) DO UPDATE SET
-                        confidence = excluded.confidence,
-                        spread = excluded.spread,
-                        fee_adjusted_spread = excluded.fee_adjusted_spread,
-                        polymarket_yes = excluded.polymarket_yes,
-                        kalshi_yes = excluded.kalshi_yes,
-                        polymarket_volume = excluded.polymarket_volume,
-                        kalshi_volume = excluded.kalshi_volume,
-                        last_updated = excluded.last_updated
-                    """,
-                    (
-                        poly_id, kalshi_id, result["confidence"],
-                        spread_info["raw_spread"], spread_info["fee_adjusted_spread"],
-                        poly_m.get("yes_price"), kalshi_m.get("yes_price"),
-                        poly_m.get("volume"), kalshi_m.get("volume"),
-                        poly_m.get("question", ""),
-                        now,
-                    ),
-                )
-                confirmed += 1
+                confirmed.append(result)
         except Exception as exc:
-            logger.error("Error confirming match %s <-> %s: %s", poly_id, kalshi_id, exc)
+            logger.error("Error confirming %s <-> %s: %s", poly_id, kalshi_id, exc)
             errors += 1
 
-    await db.commit()
     logger.info(
-        "Matching complete — candidates: %d, confirmed: %d, cached: %d, errors: %d",
-        len(candidates), confirmed, cached, errors,
+        "Matching complete -- candidates: %d, confirmed: %d, cached_skipped: %d, errors: %d",
+        len(candidates), len(confirmed), cached, errors,
     )
-    return {"candidates": len(candidates), "confirmed": confirmed, "cached": cached, "errors": errors}
+    return confirmed
