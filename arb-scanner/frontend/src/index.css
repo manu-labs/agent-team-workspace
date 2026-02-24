@@ -1,0 +1,76 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    background-color: #0a0a0f;
+    color: #d4d4d8;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #0a0a0f;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #2a2a3a;
+    border-radius: 0;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #3a3a4a;
+  }
+}
+
+@layer components {
+  /* Scan-line overlay for header */
+  .scanline-overlay {
+    position: relative;
+    overflow: hidden;
+  }
+  .scanline-overlay::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(255, 255, 255, 0.01) 2px,
+      rgba(255, 255, 255, 0.01) 4px
+    );
+    pointer-events: none;
+  }
+
+  /* Glow effect for profit values */
+  .profit-glow {
+    text-shadow: 0 0 8px rgba(34, 197, 94, 0.4);
+  }
+
+  /* Glow effect for loss values */
+  .loss-glow {
+    text-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
+  }
+
+  /* Data cell monospace styling */
+  .data-cell {
+    @apply font-mono text-sm tabular-nums tracking-tight;
+  }
+
+  /* Table row hover */
+  .table-row-hover {
+    @apply transition-colors duration-150;
+  }
+  .table-row-hover:hover {
+    background-color: rgba(42, 42, 58, 0.5);
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
