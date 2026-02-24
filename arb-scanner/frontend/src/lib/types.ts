@@ -45,6 +45,7 @@ export interface Market {
 /** Query parameters for the matches endpoint */
 export interface MatchFilters {
   min_spread?: number;
+  min_volume?: number;
   sort?: "spread" | "volume" | "confidence" | "end_date";
   direction?: "asc" | "desc";
 }
