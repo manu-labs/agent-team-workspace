@@ -1,7 +1,7 @@
 """Fast price refresh — fetches current prices for matched markets only.
 
 Called by the price_refresh_loop in poller.py every PRICE_REFRESH_INTERVAL_SECONDS.
-Only touches the ~50-100 matched markets, not the full 31K market DB.
+Only touches the top matches by volume, not all matches in the DB.
 """
 
 import asyncio
@@ -21,18 +21,24 @@ POLY_MARKET_URL = "https://gamma-api.polymarket.com/markets/{market_id}"
 # Limit concurrent API requests to avoid rate limiting
 _MAX_CONCURRENT = 10
 _TIMEOUT = 10
+# Only refresh the top N matches by volume to stay within API rate limits.
+# With 200 matches: ~400 API calls per cycle, well within platform limits.
+_MAX_MATCHES_TO_REFRESH = 200
 
 
 async def refresh_prices(db) -> dict:
-    """Fetch current prices for all matched markets and update spreads.
+    """Fetch current prices for top matched markets and update spreads.
 
     Returns: {"matches_refreshed": N, "errors": N, "elapsed_seconds": N}
     """
     started = datetime.now(timezone.utc)
 
-    # 1. Get all matched market pairs
+    # 1. Get top matched market pairs by volume (capped to avoid rate limiting)
     cursor = await db.execute(
-        "SELECT id, polymarket_id, kalshi_id FROM matches"
+        """SELECT id, polymarket_id, kalshi_id FROM matches
+           ORDER BY MIN(polymarket_volume, kalshi_volume) DESC
+           LIMIT ?""",
+        [_MAX_MATCHES_TO_REFRESH],
     )
     matches = [dict(r) for r in await cursor.fetchall()]
 
@@ -114,8 +120,8 @@ async def refresh_prices(db) -> dict:
     elapsed = (datetime.now(timezone.utc) - started).total_seconds()
 
     logger.info(
-        "Price refresh: %d matches updated, %d errors, %.1fs",
-        refreshed, errors, elapsed,
+        "Price refresh: %d/%d matches updated, %d errors, %.1fs",
+        refreshed, len(matches), errors, elapsed,
     )
     return {
         "matches_refreshed": refreshed,
