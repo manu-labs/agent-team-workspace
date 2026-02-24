@@ -147,8 +147,12 @@ def _normalize(raw: dict, series_data: dict[str, dict]) -> NormalizedMarket | No
         # Volume
         volume = float(raw.get("volume") or raw.get("volume_24h") or 0)
 
-        # Series data (category + title for URL slug)
-        series_ticker = raw.get("series_ticker") or ""
+        # Derive series_ticker from event_ticker (the markets API doesn't return
+        # series_ticker directly — it's on the event object).  The series_ticker
+        # is always the first segment of the event_ticker before the first hyphen.
+        # E.g. "KXDOTA2GAME-26FEB24LIQUIDAUR" → "KXDOTA2GAME"
+        event_ticker = (raw.get("event_ticker") or "").strip()
+        series_ticker = event_ticker.split("-")[0] if event_ticker else ""
         series_info = series_data.get(series_ticker, {})
         category = series_info.get("category", "")
         series_title = series_info.get("title", "")
@@ -165,10 +169,9 @@ def _normalize(raw: dict, series_data: dict[str, dict]) -> NormalizedMarket | No
         # Build Kalshi frontend URL
         # Format: /markets/{series_ticker}/{slug}/{event_ticker}
         # Slug is the series title slugified (lowercased, non-alnum removed, spaces to hyphens)
-        event_ticker = (raw.get("event_ticker") or "").strip()
         slug = _slugify(series_title) if series_title else ""
 
-        if series_ticker and slug and event_ticker:
+        if series_ticker and slug and event_ticker and event_ticker != series_ticker:
             url = f"https://kalshi.com/markets/{series_ticker.lower()}/{slug}/{event_ticker.lower()}"
         elif series_ticker and slug:
             url = f"https://kalshi.com/markets/{series_ticker.lower()}/{slug}"
