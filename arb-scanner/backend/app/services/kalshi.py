@@ -111,8 +111,18 @@ def _normalize(raw: dict, series_categories: dict[str, str]) -> NormalizedMarket
         else:
             yes_price = max(0.0, min(1.0, float(yes_ask_raw or 0) / 100.0))
 
-        # Derive no_price from complement for consistency
-        no_price = max(0.0, min(1.0, 1.0 - yes_price))
+        # Read no_price from the actual NO-side order book instead of assuming 1 - yes
+        # Use no_ask (buy price) to match Kalshi's website and represent actual execution cost
+        # Fallback chain: no_ask → no_bid → 1 - yes_price
+        no_ask_raw = raw.get("no_ask", 0)
+        no_bid_raw = raw.get("no_bid", 0)
+
+        if no_ask_raw and no_ask_raw > 0:
+            no_price = max(0.0, min(1.0, float(no_ask_raw) / 100.0))
+        elif no_bid_raw and no_bid_raw > 0:
+            no_price = max(0.0, min(1.0, float(no_bid_raw) / 100.0))
+        else:
+            no_price = max(0.0, min(1.0, 1.0 - yes_price))
 
         # Volume
         volume = float(raw.get("volume") or raw.get("volume_24h") or 0)
@@ -169,6 +179,11 @@ async def fetch_kalshi_markets() -> list[NormalizedMarket]:
     now = datetime.now(timezone.utc)
     expiry_cutoff = now + timedelta(days=settings.MATCH_EXPIRY_DAYS)
 
+    # Server-side timestamp filters (Unix seconds) — only fetch markets closing
+    # between now and our expiry cutoff, so the API returns far fewer pages.
+    min_close_ts = int(now.timestamp())
+    max_close_ts = int(expiry_cutoff.timestamp())
+
     authenticated = bool(settings.KALSHI_API_KEY_ID and settings.KALSHI_API_KEY)
     if authenticated:
         logger.info("Kalshi: using RSA-PSS authenticated requests")
@@ -179,12 +194,16 @@ async def fetch_kalshi_markets() -> list[NormalizedMarket]:
         series_categories = await _fetch_series_categories(client)
 
         markets: list[NormalizedMarket] = []
-        expiry_filtered = 0
         low_volume_filtered = 0
         cursor = None
 
         while True:
-            params: dict = {"status": "open", "limit": _PAGE_SIZE}
+            params: dict = {
+                "status": "open",
+                "limit": _PAGE_SIZE,
+                "min_close_ts": min_close_ts,
+                "max_close_ts": max_close_ts,
+            }
             if cursor:
                 params["cursor"] = cursor
 
@@ -227,16 +246,7 @@ async def fetch_kalshi_markets() -> list[NormalizedMarket]:
                 if not market:
                     continue
 
-                # Skip markets with no end date, already expired, or too far out
-                if (
-                    market.end_date is None
-                    or market.end_date <= now
-                    or market.end_date > expiry_cutoff
-                ):
-                    expiry_filtered += 1
-                    continue
-
-                # Skip low-volume markets
+                # Skip low-volume markets (expiry filtering is done server-side)
                 if market.volume < settings.MIN_MATCH_VOLUME:
                     low_volume_filtered += 1
                     continue
@@ -249,8 +259,8 @@ async def fetch_kalshi_markets() -> list[NormalizedMarket]:
                 break  # last page
 
     logger.info(
-        "Kalshi: %d markets kept (expired/too-far: %d, low-volume: %d)",
-        len(markets), expiry_filtered, low_volume_filtered,
+        "Kalshi: %d markets kept (low-volume: %d) [server-filtered to %d-%d day window]",
+        len(markets), low_volume_filtered, 0, settings.MATCH_EXPIRY_DAYS,
     )
     return markets
 
