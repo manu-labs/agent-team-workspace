@@ -38,6 +38,8 @@ async function request<T>(path: string, params?: Record<string, string>): Promis
 function transformMatch(raw: any): Match {
   const polyYes = raw.poly_yes ?? raw.polymarket_yes ?? 0;
   const kalshiYes = raw.kalshi_yes ?? 0;
+  const polyVolume = raw.poly_volume ?? raw.polymarket_volume ?? 0;
+  const kalshiVolume = raw.kalshi_volume ?? 0;
   return {
     id: String(raw.id),
     question: raw.question,
@@ -48,7 +50,9 @@ function transformMatch(raw: any): Match {
     raw_spread: raw.raw_spread ?? raw.spread ?? 0,
     fee_adjusted_spread: raw.fee_adjusted_spread ?? 0,
     direction: raw.direction,
-    volume: raw.volume ?? Math.min(raw.polymarket_volume || 0, raw.kalshi_volume || 0),
+    volume: raw.volume ?? Math.min(polyVolume, kalshiVolume),
+    poly_volume: polyVolume,
+    kalshi_volume: kalshiVolume,
     end_date: raw.end_date ?? raw.polymarket_end_date ?? raw.kalshi_end_date ?? "",
     poly_url: raw.poly_url ?? raw.polymarket_url ?? "",
     kalshi_url: raw.kalshi_url ?? "",

@@ -9,7 +9,12 @@ export interface Match {
   raw_spread: number;
   fee_adjusted_spread: number;
   direction: "buy_kalshi_sell_poly" | "buy_poly_sell_kalshi";
+  /** Bottleneck volume (min of both platforms) — used for sorting/filtering */
   volume: number;
+  /** Polymarket volume in USD traded */
+  poly_volume: number;
+  /** Kalshi volume in contracts traded */
+  kalshi_volume: number;
   end_date: string;
   poly_url: string;
   kalshi_url: string;
