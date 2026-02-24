@@ -5,7 +5,7 @@ Responsibilities:
   - Token/ticker → market ID mapping (in-memory, rebuilt from DB on startup)
   - Subscription sync: subscribe new matches, unsubscribe removed matches
   - Price update callbacks: update markets table, recalculate match spreads,
-    record price_history snapshots
+    record throttled price_history snapshots
 
 Called from:
   - main.py lifespan (start/stop)
@@ -14,6 +14,7 @@ Called from:
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timezone
 
 from app.database import get_db
@@ -31,6 +32,16 @@ _kalshi_ticker_to_market: dict[str, str] = {}
 
 _poly_client: PolymarketWSClient | None = None
 _kalshi_client: KalshiWSClient | None = None
+
+# Serialise all DB writes from WS callbacks — aiosqlite uses a single connection
+# so concurrent writes from both WS clients can cause "database is locked" errors.
+_db_write_lock = asyncio.Lock()
+
+# Throttle price_history inserts — WS events can fire many times per second, but
+# we only need one snapshot per match every _HISTORY_INTERVAL seconds.
+# Market and match price columns are still updated on every event (real-time).
+_HISTORY_INTERVAL = 15.0  # seconds
+_last_history_ts: dict[int, float] = {}  # match_id → last insert monotonic time
 
 
 async def start() -> None:
@@ -158,7 +169,7 @@ async def _on_poly_price(token_id: str, yes_price: float, no_price: float, volum
     market_id = _poly_token_to_market.get(token_id)
     if not market_id:
         return
-    await _update_market_and_matches(market_id, yes_price, no_price, volume)
+    await _update_market_and_matches(market_id, yes_price, no_price)
 
 
 async def _on_kalshi_price(ticker: str, yes_price: float, no_price: float, volume: float) -> None:
@@ -166,80 +177,88 @@ async def _on_kalshi_price(ticker: str, yes_price: float, no_price: float, volum
     market_id = _kalshi_ticker_to_market.get(ticker)
     if not market_id:
         return
-    await _update_market_and_matches(market_id, yes_price, no_price, volume)
+    await _update_market_and_matches(market_id, yes_price, no_price)
 
 
-async def _update_market_and_matches(
-    market_id: str, yes_price: float, no_price: float, volume: float
-) -> None:
-    """Update market row in DB and recalculate spreads for all affected matches.
+async def _update_market_and_matches(market_id: str, yes_price: float, no_price: float) -> None:
+    """Update market prices in DB and recalculate all affected match spreads.
 
-    FK-safe write order:
-      1. UPDATE markets (prices, last_updated)
-      2. UPDATE matches (spread, prices, volumes, last_updated)
-      3. INSERT price_history snapshot
+    Volume is intentionally NOT updated here — WS price_change events contain
+    per-trade volume (not total market volume). Total volume is maintained by
+    the REST discovery cycle via ingest_polymarket() / ingest_kalshi().
+
+    price_history inserts are throttled to at most one row per match per
+    _HISTORY_INTERVAL seconds to prevent millions of writes per day.
+    Market and match price columns are still updated on every event.
+
+    All DB writes are serialised under _db_write_lock to prevent aiosqlite
+    "database is locked" errors from concurrent WS callbacks.
     """
     try:
-        db = await get_db()
-        now = datetime.now(timezone.utc).isoformat()
+        async with _db_write_lock:
+            db = await get_db()
+            now = datetime.now(timezone.utc).isoformat()
+            now_ts = time.monotonic()
 
-        # 1. Update market prices
-        await db.execute(
-            "UPDATE markets SET yes_price = ?, no_price = ?, volume = ?, last_updated = ? WHERE id = ?",
-            (yes_price, no_price, volume, now, market_id),
-        )
-
-        # 2. Find all matches involving this market and recalculate spreads
-        cursor = await db.execute(
-            """SELECT
-                m.id,
-                pm.yes_price AS poly_yes,
-                km.yes_price AS kalshi_yes,
-                pm.volume    AS poly_vol,
-                km.volume    AS kalshi_vol
-               FROM matches m
-               LEFT JOIN markets pm ON m.polymarket_id = pm.id
-               LEFT JOIN markets km ON m.kalshi_id = km.id
-               WHERE m.polymarket_id = ? OR m.kalshi_id = ?""",
-            [market_id, market_id],
-        )
-        affected = [dict(r) for r in await cursor.fetchall()]
-
-        for match in affected:
-            poly_yes = match["poly_yes"] or 0.0
-            kalshi_yes = match["kalshi_yes"] or 0.0
-            if not poly_yes or not kalshi_yes:
-                continue
-
-            sd = calculate_spread(poly_yes, kalshi_yes)
-
+            # 1. Update market prices only — leave volume untouched
             await db.execute(
-                """UPDATE matches SET
-                    spread = ?, fee_adjusted_spread = ?,
-                    polymarket_yes = ?, kalshi_yes = ?,
-                    polymarket_volume = ?, kalshi_volume = ?,
-                    last_updated = ?
-                   WHERE id = ?""",
-                (
-                    sd["raw_spread"], sd["fee_adjusted_spread"],
-                    poly_yes, kalshi_yes,
-                    match["poly_vol"] or 0, match["kalshi_vol"] or 0,
-                    now, match["id"],
-                ),
+                "UPDATE markets SET yes_price = ?, no_price = ?, last_updated = ? WHERE id = ?",
+                (yes_price, no_price, now, market_id),
             )
 
-            # 3. Record price history snapshot
-            await db.execute(
-                """INSERT INTO price_history
-                   (match_id, polymarket_yes, kalshi_yes, spread, fee_adjusted_spread, recorded_at)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (
-                    match["id"], poly_yes, kalshi_yes,
-                    sd["raw_spread"], sd["fee_adjusted_spread"], now,
-                ),
+            # 2. Find all matches involving this market and recalculate spreads
+            cursor = await db.execute(
+                """SELECT
+                    m.id,
+                    pm.yes_price AS poly_yes,
+                    km.yes_price AS kalshi_yes,
+                    pm.volume    AS poly_vol,
+                    km.volume    AS kalshi_vol
+                   FROM matches m
+                   LEFT JOIN markets pm ON m.polymarket_id = pm.id
+                   LEFT JOIN markets km ON m.kalshi_id = km.id
+                   WHERE m.polymarket_id = ? OR m.kalshi_id = ?""",
+                [market_id, market_id],
             )
+            affected = [dict(r) for r in await cursor.fetchall()]
 
-        await db.commit()
+            for match in affected:
+                poly_yes = match["poly_yes"] or 0.0
+                kalshi_yes = match["kalshi_yes"] or 0.0
+                if not poly_yes or not kalshi_yes:
+                    continue
+
+                sd = calculate_spread(poly_yes, kalshi_yes)
+
+                await db.execute(
+                    """UPDATE matches SET
+                        spread = ?, fee_adjusted_spread = ?,
+                        polymarket_yes = ?, kalshi_yes = ?,
+                        last_updated = ?
+                       WHERE id = ?""",
+                    (
+                        sd["raw_spread"], sd["fee_adjusted_spread"],
+                        poly_yes, kalshi_yes,
+                        now, match["id"],
+                    ),
+                )
+
+                # 3. Throttled price_history insert — max one per match per interval
+                match_id = match["id"]
+                if now_ts - _last_history_ts.get(match_id, 0.0) >= _HISTORY_INTERVAL:
+                    await db.execute(
+                        """INSERT INTO price_history
+                           (match_id, polymarket_yes, kalshi_yes, spread,
+                            fee_adjusted_spread, recorded_at)
+                           VALUES (?, ?, ?, ?, ?, ?)""",
+                        (
+                            match_id, poly_yes, kalshi_yes,
+                            sd["raw_spread"], sd["fee_adjusted_spread"], now,
+                        ),
+                    )
+                    _last_history_ts[match_id] = now_ts
+
+            await db.commit()
 
     except Exception as exc:
         logger.error("WS price update failed for %s: %s", market_id, exc, exc_info=True)
