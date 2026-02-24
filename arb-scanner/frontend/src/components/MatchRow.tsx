@@ -26,6 +26,32 @@ function formatRelativeTime(iso: string): string {
   return "now";
 }
 
+// ── Liquidity indicator ───────────────────────────────────────────────────────
+
+function LiquidityDot({ volume }: { volume: number }) {
+  let colorClass: string;
+  let title: string;
+  if (volume >= 100_000) {
+    colorClass = "bg-profit";
+    title = "High liquidity (>$100K)";
+  } else if (volume >= 10_000) {
+    colorClass = "bg-yellow-500/80";
+    title = "Medium liquidity ($10K–$100K)";
+  } else if (volume >= 1_000) {
+    colorClass = "bg-zinc-400";
+    title = "Low liquidity ($1K–$10K)";
+  } else {
+    colorClass = "bg-zinc-700";
+    title = "Very low liquidity (<$1K)";
+  }
+  return (
+    <span
+      className={`inline-block h-1.5 w-1.5 flex-shrink-0 rounded-full ${colorClass}`}
+      title={title}
+    />
+  );
+}
+
 // ── Platform link icons ───────────────────────────────────────────────────────
 
 function PlatformLink({
@@ -104,9 +130,12 @@ export default function MatchRow({ match }: MatchRowProps) {
           <SpreadBadge spread={match.fee_adjusted_spread} />
         </td>
 
-        {/* Volume */}
+        {/* Volume + liquidity dot */}
         <td className="data-cell whitespace-nowrap px-3 py-2.5 text-zinc-500">
-          {formatVolume(match.volume)}
+          <span className="inline-flex items-center gap-1.5">
+            <LiquidityDot volume={match.volume} />
+            {formatVolume(match.volume)}
+          </span>
         </td>
 
         {/* Ends */}
@@ -166,7 +195,10 @@ export default function MatchRow({ match }: MatchRowProps) {
                   {formatPrice(match.kalshi_yes)}
                 </span>
               </span>
-              <span>Vol {formatVolume(match.volume)}</span>
+              <span className="inline-flex items-center gap-1">
+                <LiquidityDot volume={match.volume} />
+                {formatVolume(match.volume)}
+              </span>
               <span>Ends {formatRelativeTime(match.end_date)}</span>
             </div>
 
