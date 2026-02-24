@@ -4,6 +4,11 @@ from app.database import get_db
 
 router = APIRouter(prefix="/matches", tags=["matches"])
 
+ORDER_MAP = {
+    "volume": "polymarket_volume + kalshi_volume DESC",
+    "spread": "fee_adjusted_spread DESC",
+}
+
 
 @router.get("/")
 async def list_matches(
@@ -15,10 +20,7 @@ async def list_matches(
     """List matched market pairs sorted by fee-adjusted spread."""
     db = await get_db()
 
-    if sort_by == "volume":
-        order = "polymarket_volume + kalshi_volume DESC"
-    else:
-        order = "fee_adjusted_spread DESC"
+    order = ORDER_MAP.get(sort_by, ORDER_MAP["spread"])
 
     cursor = await db.execute(
         f"""SELECT * FROM matches
