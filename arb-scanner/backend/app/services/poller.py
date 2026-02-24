@@ -106,7 +106,6 @@ async def _run_cycle(last_match_time: datetime) -> datetime:
     Steps:
       1. Ingest markets from Polymarket and Kalshi
       2. Run LLM matcher if match interval elapsed or new markets appeared
-         (matcher handles its own DB queries and upserts)
       3. Refresh spreads for all existing matches with current prices
       4. Record price history snapshots for all active matches
 
@@ -140,9 +139,44 @@ async def _run_cycle(last_match_time: datetime) -> datetime:
 
         match_result: dict = {}
         if should_match:
-            # match_markets() reads from DB, runs LLM, and upserts confirmed pairs
-            match_result = await match_markets()
+            # Fetch markets from DB for matching
+            poly_cur = await db.execute(
+                "SELECT id, question, category, yes_price, no_price, volume, url "
+                "FROM markets WHERE platform = 'polymarket'"
+            )
+            poly_markets = [dict(r) for r in await poly_cur.fetchall()]
+
+            kalshi_cur = await db.execute(
+                "SELECT id, question, category, yes_price, no_price, volume, url "
+                "FROM markets WHERE platform = 'kalshi'"
+            )
+            kalshi_markets = [dict(r) for r in await kalshi_cur.fetchall()]
+
+            confirmed = await match_markets(poly_markets, kalshi_markets)
+
+            # Upsert confirmed matches into the matches table
+            for m in confirmed:
+                sd = calculate_spread(m["polymarket_yes"], m["kalshi_yes"])
+                await db.execute(
+                    """INSERT INTO matches (polymarket_id, kalshi_id, confidence, spread,
+                                           fee_adjusted_spread, polymarket_yes, kalshi_yes,
+                                           question, last_updated)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       ON CONFLICT(polymarket_id, kalshi_id) DO UPDATE SET
+                           confidence = excluded.confidence,
+                           last_updated = excluded.last_updated""",
+                    (m["polymarket_id"], m["kalshi_id"], m["confidence"],
+                     sd["raw_spread"], sd["fee_adjusted_spread"],
+                     m["polymarket_yes"], m["kalshi_yes"], m["question"],
+                     now.isoformat()),
+                )
+
             last_match_time = now
+            match_result = {
+                "confirmed": len(confirmed),
+                "poly_count": len(poly_markets),
+                "kalshi_count": len(kalshi_markets),
+            }
             logger.info("Matcher: %s", match_result)
         else:
             logger.info(
