@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter
 
+from app.config import settings
 from app.database import get_db
 from app.services import poller
 
@@ -28,7 +29,7 @@ async def poll_status():
 @router.post("/cleanup")
 async def cleanup_stale_data():
     """Remove cached matches, markets, embeddings, and history that don't meet
-    the current 7-day expiry + $20K volume criteria.
+    the current expiry + volume criteria (MATCH_EXPIRY_DAYS / MIN_MATCH_VOLUME).
 
     Order matters due to foreign key constraints:
     1. price_history (FK -> matches)
@@ -39,7 +40,7 @@ async def cleanup_stale_data():
     db = await get_db()
 
     now_iso = datetime.now(timezone.utc).isoformat()
-    cutoff_iso = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+    cutoff_iso = (datetime.now(timezone.utc) + timedelta(days=settings.MATCH_EXPIRY_DAYS)).isoformat()
 
     # Count before cleanup
     before_matches = (await (await db.execute("SELECT COUNT(*) FROM matches")).fetchone())[0]
@@ -53,8 +54,8 @@ async def cleanup_stale_data():
             SELECT m.id FROM matches m
             LEFT JOIN markets pm ON m.polymarket_id = pm.id
             LEFT JOIN markets km ON m.kalshi_id = km.id
-            WHERE COALESCE(pm.volume, 0) < 20000
-               OR COALESCE(km.volume, 0) < 20000
+            WHERE COALESCE(pm.volume, 0) < ?
+               OR COALESCE(km.volume, 0) < ?
                OR pm.end_date IS NULL
                OR km.end_date IS NULL
                OR pm.end_date <= ?
@@ -62,7 +63,7 @@ async def cleanup_stale_data():
                OR pm.end_date > ?
                OR km.end_date > ?
         )
-    """, [now_iso, now_iso, cutoff_iso, cutoff_iso])
+    """, [settings.MIN_MATCH_VOLUME, settings.MIN_MATCH_VOLUME, now_iso, now_iso, cutoff_iso, cutoff_iso])
 
     # 2. Delete matches where either market doesn't meet criteria
     await db.execute("""
@@ -70,8 +71,8 @@ async def cleanup_stale_data():
             SELECT m.id FROM matches m
             LEFT JOIN markets pm ON m.polymarket_id = pm.id
             LEFT JOIN markets km ON m.kalshi_id = km.id
-            WHERE COALESCE(pm.volume, 0) < 20000
-               OR COALESCE(km.volume, 0) < 20000
+            WHERE COALESCE(pm.volume, 0) < ?
+               OR COALESCE(km.volume, 0) < ?
                OR pm.end_date IS NULL
                OR km.end_date IS NULL
                OR pm.end_date <= ?
@@ -79,28 +80,28 @@ async def cleanup_stale_data():
                OR pm.end_date > ?
                OR km.end_date > ?
         )
-    """, [now_iso, now_iso, cutoff_iso, cutoff_iso])
+    """, [settings.MIN_MATCH_VOLUME, settings.MIN_MATCH_VOLUME, now_iso, now_iso, cutoff_iso, cutoff_iso])
 
     # 3. Delete embeddings for markets that will be removed (BEFORE deleting markets — FK constraint)
     await db.execute("""
         DELETE FROM market_embeddings
         WHERE market_id IN (
             SELECT id FROM markets WHERE
-                volume < 20000
+                volume < ?
                 OR end_date IS NULL
                 OR end_date <= ?
                 OR end_date > ?
         )
-    """, [now_iso, cutoff_iso])
+    """, [settings.MIN_MATCH_VOLUME, now_iso, cutoff_iso])
 
     # 4. Delete markets that don't meet criteria
     await db.execute("""
         DELETE FROM markets WHERE
-            volume < 20000
+            volume < ?
             OR end_date IS NULL
             OR end_date <= ?
             OR end_date > ?
-    """, [now_iso, cutoff_iso])
+    """, [settings.MIN_MATCH_VOLUME, now_iso, cutoff_iso])
 
     await db.commit()
 
