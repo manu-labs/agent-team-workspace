@@ -151,6 +151,25 @@ async def get_match(match_id: int):
     return _serialize_match(dict(row))
 
 
+@router.delete("/{match_id}")
+async def delete_match(match_id: int):
+    """Delete a specific match (and its price history) by ID.
+
+    Used for manual false-positive removal. Deletes price_history first to
+    satisfy the FK constraint before removing the match row.
+    """
+    db = await get_db()
+    cursor = await db.execute("SELECT id FROM matches WHERE id = ?", [match_id])
+    if not await cursor.fetchone():
+        raise HTTPException(status_code=404, detail="Match not found")
+
+    await db.execute("DELETE FROM price_history WHERE match_id = ?", [match_id])
+    await db.execute("DELETE FROM matches WHERE id = ?", [match_id])
+    await db.commit()
+
+    return {"status": "ok", "deleted_match_id": match_id}
+
+
 @router.get("/{match_id}/history")
 async def get_match_history(
     match_id: int,
@@ -175,4 +194,3 @@ async def get_match_history(
     )
     rows = await cursor.fetchall()
     return [_serialize_snapshot(dict(row)) for row in rows]
-
