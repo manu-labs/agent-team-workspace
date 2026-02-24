@@ -1,13 +1,11 @@
 """Background poller — periodic market ingestion, matching, and price history recording."""
 
 import asyncio
-import json
 import logging
 from datetime import datetime, timezone
 
 from app.config import settings
 from app.database import get_db
-from app.models.market import NormalizedMarket
 from app.services.calculator import calculate_spread
 from app.services.kalshi import ingest_kalshi
 from app.services.matcher import match_markets
@@ -19,7 +17,7 @@ _stop_event: asyncio.Event | None = None
 _poll_task: asyncio.Task | None = None
 _cycle_lock = asyncio.Lock()
 
-# Tracks the last completed cycle for the status endpoint
+# Tracks last completed cycle for the status endpoint
 _last_run: dict | None = None
 
 
@@ -52,21 +50,26 @@ async def stop() -> None:
 async def trigger_now() -> dict:
     """Trigger an immediate poll cycle (for the manual /poll endpoint).
 
-    Returns the cycle result or an error if a cycle is already running.
+    Returns the cycle result, or a busy message if a cycle is already running.
     """
     if _cycle_lock.locked():
         return {"status": "busy", "message": "A poll cycle is already running"}
-    last_match_time = _last_run.get("last_match_at") if _last_run else None
-    if isinstance(last_match_time, str):
-        last_match_time = datetime.fromisoformat(last_match_time)
+
+    last_match_time = None
+    if _last_run and _last_run.get("last_match_at"):
+        try:
+            last_match_time = datetime.fromisoformat(_last_run["last_match_at"])
+        except ValueError:
+            pass
     if last_match_time is None:
         last_match_time = datetime.min.replace(tzinfo=timezone.utc)
+
     result = await _run_cycle(last_match_time)
     return {"status": "ok", "result": result}
 
 
 async def get_status() -> dict:
-    """Return current poller status for the status endpoint."""
+    """Return current poller status and last run metrics."""
     running = _poll_task is not None and not _poll_task.done()
     return {
         "running": running,
@@ -92,18 +95,20 @@ async def _poll_loop() -> None:
                 asyncio.shield(_stop_event.wait()),
                 timeout=settings.POLL_INTERVAL_SECONDS,
             )
-            break  # stop was requested
+            break  # stop was requested during sleep
         except asyncio.TimeoutError:
-            pass  # normal timeout, loop again
+            pass  # normal — continue looping
 
 
 async def _run_cycle(last_match_time: datetime) -> datetime:
     """Execute one full poll cycle under a lock (prevents concurrent runs).
 
-    1. Ingest markets from both platforms
-    2. Run LLM matcher if match interval has elapsed or new markets appeared
-    3. Update spreads for all existing matches
-    4. Record price history snapshots
+    Steps:
+      1. Ingest markets from Polymarket and Kalshi
+      2. Run LLM matcher if match interval elapsed or new markets appeared
+         (matcher handles its own DB queries and upserts)
+      3. Refresh spreads for all existing matches with current prices
+      4. Record price history snapshots for all active matches
 
     Returns updated last_match_time.
     """
@@ -125,7 +130,7 @@ async def _run_cycle(last_match_time: datetime) -> datetime:
             poly_result, kalshi_result, new_markets,
         )
 
-        # --- Step 2: Matching (throttled) ---
+        # --- Step 2: Matching (throttled by interval or triggered by new markets) ---
         now = datetime.now(timezone.utc)
         seconds_since_match = (now - last_match_time).total_seconds()
         should_match = (
@@ -133,27 +138,22 @@ async def _run_cycle(last_match_time: datetime) -> datetime:
             or new_markets > 0
         )
 
-        matched_count = 0
+        match_result: dict = {}
         if should_match:
-            poly_markets = await _load_markets(db, "polymarket")
-            kalshi_markets = await _load_markets(db, "kalshi")
-
-            if poly_markets and kalshi_markets:
-                matched_pairs = await match_markets(poly_markets, kalshi_markets)
-                matched_count = len(matched_pairs)
-                for pair in matched_pairs:
-                    await _upsert_match(db, pair)
-                await db.commit()
-                logger.info("Matcher: %d matched pairs upserted", matched_count)
-            else:
-                logger.info("Matcher skipped — no markets from one or both platforms")
-
+            # match_markets() reads from DB, runs LLM, and upserts confirmed pairs
+            match_result = await match_markets()
             last_match_time = now
+            logger.info("Matcher: %s", match_result)
+        else:
+            logger.info(
+                "Matcher skipped — %ds since last run (threshold: %ds)",
+                int(seconds_since_match), settings.MATCH_INTERVAL_SECONDS,
+            )
 
-        # --- Step 3: Update spreads ---
+        # --- Step 3: Refresh spreads for all existing matches ---
         spreads_updated = await _update_spreads(db)
 
-        # --- Step 4: Record price history ---
+        # --- Step 4: Record price history snapshots ---
         snapshots = await _record_snapshots(db)
 
         await db.commit()
@@ -164,104 +164,21 @@ async def _run_cycle(last_match_time: datetime) -> datetime:
             "elapsed_seconds": round(elapsed, 2),
             "polymarket": poly_result,
             "kalshi": kalshi_result,
-            "matched_pairs": matched_count,
+            "match_result": match_result,
             "spreads_updated": spreads_updated,
             "snapshots_recorded": snapshots,
             "last_match_at": last_match_time.isoformat(),
         }
-        logger.info("Poll cycle complete in %.1fs — %s", elapsed, _last_run)
+        logger.info("Poll cycle complete in %.1fs", elapsed)
         return last_match_time
 
 
-async def _load_markets(db, platform: str) -> list[NormalizedMarket]:
-    """Load all markets for a platform from DB and reconstruct NormalizedMarket objects."""
-    cursor = await db.execute(
-        "SELECT * FROM markets WHERE platform = ?", [platform]
-    )
-    rows = await cursor.fetchall()
-    markets = []
-    for row in rows:
-        d = dict(row)
-        try:
-            raw_data = json.loads(d.get("raw_data") or "{}")
-            end_date = datetime.fromisoformat(d["end_date"]) if d.get("end_date") else None
-            last_updated = datetime.fromisoformat(d["last_updated"])
-            markets.append(NormalizedMarket(
-                id=d["id"],
-                platform=d["platform"],
-                question=d["question"],
-                category=d.get("category") or "",
-                yes_price=d["yes_price"],
-                no_price=d["no_price"],
-                volume=d.get("volume") or 0.0,
-                end_date=end_date,
-                url=d.get("url") or "",
-                raw_data=raw_data,
-                last_updated=last_updated,
-            ))
-        except Exception as exc:
-            logger.warning("Skipping malformed market row %s: %s", d.get("id"), exc)
-    return markets
-
-
-async def _upsert_match(db, pair: dict) -> None:
-    """Upsert a matched pair into the matches table with current spread data."""
-    poly_id = pair.get("polymarket_id", "")
-    kalshi_id = pair.get("kalshi_id", "")
-    if not poly_id or not kalshi_id:
-        logger.warning("Skipping match with missing IDs: %s", pair)
-        return
-
-    # Look up current prices from markets table
-    poly_cursor = await db.execute(
-        "SELECT yes_price, volume FROM markets WHERE id = ?", [poly_id]
-    )
-    poly_row = await poly_cursor.fetchone()
-
-    kalshi_cursor = await db.execute(
-        "SELECT yes_price, volume FROM markets WHERE id = ?", [kalshi_id]
-    )
-    kalshi_row = await kalshi_cursor.fetchone()
-
-    poly_yes = poly_row["yes_price"] if poly_row else pair.get("polymarket_yes", 0.0)
-    kalshi_yes = kalshi_row["yes_price"] if kalshi_row else pair.get("kalshi_yes", 0.0)
-    poly_vol = poly_row["volume"] if poly_row else 0.0
-    kalshi_vol = kalshi_row["volume"] if kalshi_row else 0.0
-
-    spread_data = calculate_spread(poly_yes, kalshi_yes)
-
-    await db.execute(
-        """
-        INSERT INTO matches (polymarket_id, kalshi_id, confidence, spread,
-                             fee_adjusted_spread, polymarket_yes, kalshi_yes,
-                             polymarket_volume, kalshi_volume, question, last_updated)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(polymarket_id, kalshi_id) DO UPDATE SET
-            confidence          = excluded.confidence,
-            spread              = excluded.spread,
-            fee_adjusted_spread = excluded.fee_adjusted_spread,
-            polymarket_yes      = excluded.polymarket_yes,
-            kalshi_yes          = excluded.kalshi_yes,
-            polymarket_volume   = excluded.polymarket_volume,
-            kalshi_volume       = excluded.kalshi_volume,
-            question            = excluded.question,
-            last_updated        = excluded.last_updated
-        """,
-        (
-            poly_id, kalshi_id,
-            pair.get("confidence", 0.0),
-            spread_data["raw_spread"],
-            spread_data["fee_adjusted_spread"],
-            poly_yes, kalshi_yes,
-            poly_vol, kalshi_vol,
-            pair.get("question", ""),
-            datetime.now(timezone.utc).isoformat(),
-        ),
-    )
-
-
 async def _update_spreads(db) -> int:
-    """Refresh spread data for all existing matches from current market prices."""
+    """Refresh spread data for all existing matches using current market prices.
+
+    Called every cycle so the dashboard always shows fresh numbers even between
+    full matcher runs.
+    """
     cursor = await db.execute(
         "SELECT id, polymarket_id, kalshi_id FROM matches"
     )
@@ -270,20 +187,21 @@ async def _update_spreads(db) -> int:
 
     for match in matches:
         match_id = match["id"]
-        poly_id = match["polymarket_id"]
-        kalshi_id = match["kalshi_id"]
 
         poly_cur = await db.execute(
-            "SELECT yes_price, volume FROM markets WHERE id = ?", [poly_id]
+            "SELECT yes_price, volume FROM markets WHERE id = ?",
+            [match["polymarket_id"]],
         )
         poly_row = await poly_cur.fetchone()
+
         kalshi_cur = await db.execute(
-            "SELECT yes_price, volume FROM markets WHERE id = ?", [kalshi_id]
+            "SELECT yes_price, volume FROM markets WHERE id = ?",
+            [match["kalshi_id"]],
         )
         kalshi_row = await kalshi_cur.fetchone()
 
         if not poly_row or not kalshi_row:
-            continue  # one side delisted
+            continue  # one side delisted or not yet ingested
 
         spread_data = calculate_spread(poly_row["yes_price"], kalshi_row["yes_price"])
 
@@ -314,7 +232,7 @@ async def _update_spreads(db) -> int:
 
 
 async def _record_snapshots(db) -> int:
-    """Write a price_history snapshot for every active match."""
+    """Write a price_history row for every active match in this cycle."""
     cursor = await db.execute(
         """SELECT id, polymarket_yes, kalshi_yes, spread, fee_adjusted_spread
            FROM matches"""
