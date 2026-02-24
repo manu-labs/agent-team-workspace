@@ -1,4 +1,5 @@
 import json
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -9,6 +10,8 @@ from app.database import close_db, init_db
 from app.routers import markets, matches
 from app.routers.poll import router as poll_router
 from app.services import poller
+
+logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s: %(message)s")
 
 
 @asynccontextmanager
