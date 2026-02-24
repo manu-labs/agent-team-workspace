@@ -154,8 +154,8 @@ async def _fetch_page(client: httpx.AsyncClient, offset: int) -> list[dict]:
 async def fetch_polymarket_markets() -> list[NormalizedMarket]:
     """Fetch active Polymarket markets expiring within MATCH_EXPIRY_DAYS with MIN_MATCH_VOLUME."""
     markets: list[NormalizedMarket] = []
-    low_volume_filtered = 0
     expiry_filtered = 0
+    low_volume_filtered = 0
     offset = 0
 
     now = datetime.now(timezone.utc)
@@ -172,14 +172,18 @@ async def fetch_polymarket_markets() -> list[NormalizedMarket]:
                 if not market:
                     continue
 
+                # Skip markets with no end date, already expired, or too far out
+                if (
+                    market.end_date is None
+                    or market.end_date <= now
+                    or market.end_date > expiry_cutoff
+                ):
+                    expiry_filtered += 1
+                    continue
+
                 # Skip low-volume markets
                 if market.volume < settings.MIN_MATCH_VOLUME:
                     low_volume_filtered += 1
-                    continue
-
-                # Skip markets expiring beyond the cutoff window
-                if market.end_date is not None and market.end_date > expiry_cutoff:
-                    expiry_filtered += 1
                     continue
 
                 markets.append(market)
@@ -191,8 +195,8 @@ async def fetch_polymarket_markets() -> list[NormalizedMarket]:
             offset += _PAGE_SIZE
 
     logger.info(
-        "Polymarket: %d markets kept (low-volume filtered: %d, expiry filtered: %d)",
-        len(markets), low_volume_filtered, expiry_filtered,
+        "Polymarket: %d markets kept (expired/too-far: %d, low-volume: %d)",
+        len(markets), expiry_filtered, low_volume_filtered,
     )
     return markets
 
