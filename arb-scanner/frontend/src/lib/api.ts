@@ -72,10 +72,12 @@ function transformSnapshot(raw: any): PriceSnapshot {
   };
 }
 
-/** Fetch all matched market pairs, sorted by fee-adjusted spread */
+/** Fetch all matched market pairs */
 export async function getMatches(filters?: MatchFilters): Promise<Match[]> {
   const params: Record<string, string> = {};
   if (filters?.min_spread !== undefined) params.min_spread = String(filters.min_spread);
+  if (filters?.min_volume !== undefined && filters.min_volume > 0)
+    params.min_volume = String(filters.min_volume);
   if (filters?.sort) params.sort_by = filters.sort;
   if (filters?.direction) params.direction = filters.direction;
   const raw = await request<unknown[]>("/matches", params);
