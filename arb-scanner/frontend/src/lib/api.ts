@@ -34,38 +34,46 @@ async function request<T>(path: string, params?: Record<string, string>): Promis
   return res.json();
 }
 
+/**
+ * Normalize a raw backend match response to the frontend Match type.
+ * Handles both the legacy field names (polymarket_yes, polymarket_url, spread, etc.)
+ * and the serialized names from the backend serialization layer (poly_yes, poly_url,
+ * raw_spread, volume, end_date, etc.).
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function transformMatch(raw: any): Match {
+  const polyYes = raw.poly_yes ?? raw.polymarket_yes ?? 0;
+  const kalshiYes = raw.kalshi_yes ?? 0;
   return {
     id: String(raw.id),
     question: raw.question,
-    poly_yes: raw.polymarket_yes,
-    poly_no: 1 - raw.polymarket_yes,
-    kalshi_yes: raw.kalshi_yes,
-    kalshi_no: 1 - raw.kalshi_yes,
-    raw_spread: raw.spread,
-    fee_adjusted_spread: raw.fee_adjusted_spread,
+    poly_yes: polyYes,
+    poly_no: raw.poly_no ?? (1 - polyYes),
+    kalshi_yes: kalshiYes,
+    kalshi_no: raw.kalshi_no ?? (1 - kalshiYes),
+    raw_spread: raw.raw_spread ?? raw.spread ?? 0,
+    fee_adjusted_spread: raw.fee_adjusted_spread ?? 0,
     direction: raw.direction,
-    volume: Math.min(raw.polymarket_volume || 0, raw.kalshi_volume || 0),
-    end_date: raw.polymarket_end_date || raw.kalshi_end_date || "",
-    poly_url: raw.polymarket_url || "",
-    kalshi_url: raw.kalshi_url || "",
-    confidence: raw.confidence,
-    last_updated: raw.last_updated,
+    volume: raw.volume ?? Math.min(raw.polymarket_volume || 0, raw.kalshi_volume || 0),
+    end_date: raw.end_date ?? raw.polymarket_end_date ?? raw.kalshi_end_date ?? "",
+    poly_url: raw.poly_url ?? raw.polymarket_url ?? "",
+    kalshi_url: raw.kalshi_url ?? "",
+    confidence: raw.confidence ?? 0,
+    last_updated: raw.last_updated ?? "",
   };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function transformSnapshot(raw: any): PriceSnapshot {
-  const polyYes = raw.polymarket_yes ?? raw.poly_yes ?? 0;
+  const polyYes = raw.poly_yes ?? raw.polymarket_yes ?? 0;
   const kalshiYes = raw.kalshi_yes ?? 0;
   return {
-    timestamp: raw.recorded_at || raw.timestamp || "",
+    timestamp: raw.timestamp ?? raw.recorded_at ?? "",
     poly_yes: polyYes,
-    poly_no: raw.poly_no ?? 1 - polyYes,
+    poly_no: raw.poly_no ?? (1 - polyYes),
     kalshi_yes: kalshiYes,
-    kalshi_no: raw.kalshi_no ?? 1 - kalshiYes,
-    raw_spread: raw.spread ?? raw.raw_spread ?? 0,
+    kalshi_no: raw.kalshi_no ?? (1 - kalshiYes),
+    raw_spread: raw.raw_spread ?? raw.spread ?? 0,
     fee_adjusted_spread: raw.fee_adjusted_spread ?? 0,
   };
 }
