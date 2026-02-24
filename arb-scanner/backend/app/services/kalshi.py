@@ -112,7 +112,7 @@ def _normalize(raw: dict, series_categories: dict[str, str]) -> NormalizedMarket
             yes_price = max(0.0, min(1.0, float(yes_ask_raw or 0) / 100.0))
 
         # Read no_price from the actual NO-side order book instead of assuming 1 - yes
-        # Use no_ask (price to buy NO) to match what Kalshi shows on their site
+        # Use no_ask (buy price) to match Kalshi's website and represent actual execution cost
         # Fallback chain: no_ask → no_bid → 1 - yes_price
         no_ask_raw = raw.get("no_ask", 0)
         no_bid_raw = raw.get("no_bid", 0)
