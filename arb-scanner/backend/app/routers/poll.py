@@ -29,6 +29,12 @@ async def poll_status():
 async def cleanup_stale_data():
     """Remove cached matches, markets, embeddings, and history that don't meet
     the current 7-day expiry + $20K volume criteria.
+
+    Order matters due to foreign key constraints:
+    1. price_history (FK -> matches)
+    2. matches
+    3. market_embeddings (FK -> markets)
+    4. markets
     """
     db = await get_db()
 
@@ -75,7 +81,19 @@ async def cleanup_stale_data():
         )
     """, [now_iso, now_iso, cutoff_iso, cutoff_iso])
 
-    # 3. Delete markets that don't meet criteria
+    # 3. Delete embeddings for markets that will be removed (BEFORE deleting markets — FK constraint)
+    await db.execute("""
+        DELETE FROM market_embeddings
+        WHERE market_id IN (
+            SELECT id FROM markets WHERE
+                volume < 20000
+                OR end_date IS NULL
+                OR end_date <= ?
+                OR end_date > ?
+        )
+    """, [now_iso, cutoff_iso])
+
+    # 4. Delete markets that don't meet criteria
     await db.execute("""
         DELETE FROM markets WHERE
             volume < 20000
@@ -83,12 +101,6 @@ async def cleanup_stale_data():
             OR end_date <= ?
             OR end_date > ?
     """, [now_iso, cutoff_iso])
-
-    # 4. Delete orphaned embeddings (market was deleted)
-    await db.execute("""
-        DELETE FROM market_embeddings
-        WHERE market_id NOT IN (SELECT id FROM markets)
-    """)
 
     await db.commit()
 
