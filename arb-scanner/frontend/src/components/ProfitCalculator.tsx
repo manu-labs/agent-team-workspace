@@ -5,6 +5,15 @@ interface ProfitCalculatorProps {
   match: Match;
 }
 
+/**
+ * Kalshi actuarial fee per contract.
+ * Formula: min(0.07 * p * (1 - p), 0.02)  where p is the YES price paid.
+ * Capped at $0.02 per contract.
+ */
+function kalshiFeePerContract(price: number): number {
+  return Math.min(0.07 * price * (1 - price), 0.02);
+}
+
 function fmtUSD(n: number): string {
   const abs = Math.abs(n);
   const sign = n < 0 ? "-" : "";
@@ -21,13 +30,13 @@ export default function ProfitCalculator({ match }: ProfitCalculatorProps) {
   const isBuyKalshi = match.direction === "buy_kalshi_sell_poly";
   const buyPrice = isBuyKalshi ? match.kalshi_yes : match.poly_yes;
   const sellPrice = isBuyKalshi ? match.poly_yes : match.kalshi_yes;
-  // Use per-match fee rates from the backend rather than hardcoded constants
-  const buyFeeRate = isBuyKalshi ? match.kalshi_fee : match.polymarket_fee;
 
-  // Each contract costs 1 unit priced in cents -> dollar cost = contracts * price
+  // Fee per contract in dollars (Polymarket charges no fee on binary markets)
+  const feePerContract = isBuyKalshi ? kalshiFeePerContract(buyPrice) : 0;
+
   const buyCost = contracts * buyPrice;
   const sellRevenue = contracts * sellPrice;
-  const feeAmount = contracts * buyPrice * buyFeeRate;
+  const feeAmount = contracts * feePerContract;
   const netProfit = sellRevenue - buyCost - feeAmount;
   const roi = buyCost > 0 ? netProfit / buyCost : 0;
 
@@ -81,14 +90,21 @@ export default function ProfitCalculator({ match }: ProfitCalculatorProps) {
           </div>
           <div className="flex justify-between font-mono text-xs">
             <span className="text-zinc-500">
-              {buyPlatform} fee ({(buyFeeRate * 100).toFixed(1)}%)
+              {buyPlatform} fee
+              {isBuyKalshi && (
+                <span className="ml-1 text-zinc-600">
+                  (actuarial, capped $0.02/contract)
+                </span>
+              )}
             </span>
-            <span className="tabular-nums text-loss">
-              {fmtUSD(-feeAmount)}
-            </span>
+            {feeAmount > 0 ? (
+              <span className="tabular-nums text-loss">{fmtUSD(-feeAmount)}</span>
+            ) : (
+              <span className="tabular-nums text-zinc-600">Free</span>
+            )}
           </div>
 
-          {/* Divider */}
+          {/* Divider + net profit */}
           <div className="mt-2 border-t border-terminal-border pt-2">
             <div className="flex items-baseline justify-between">
               <span className="font-mono text-xs uppercase tracking-wider text-zinc-400">
