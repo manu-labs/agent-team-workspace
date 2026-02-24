@@ -11,14 +11,22 @@ import httpx
 from app.config import settings
 from app.database import get_db
 from app.models.market import NormalizedMarket
+from app.services.kalshi_auth import get_auth_headers
 
 logger = logging.getLogger(__name__)
 
 KALSHI_MARKETS_URL = "https://api.elections.kalshi.com/trade-api/v2/markets"
 KALSHI_SERIES_URL = "https://api.elections.kalshi.com/trade-api/v2/series"
+_MARKETS_PATH = "/trade-api/v2/markets"   # path component for auth signing
+_SERIES_PATH = "/trade-api/v2/series"     # path component for auth signing
 _PAGE_SIZE = 1000
 _RETRIES = 3
 _PLATFORM = "kalshi"
+
+
+def _auth(method: str, path: str) -> dict:
+    """Return Kalshi auth headers if API keys are configured, else empty dict."""
+    return get_auth_headers(settings.KALSHI_API_KEY_ID, settings.KALSHI_API_KEY, method, path)
 
 
 async def _fetch_series_categories(client: httpx.AsyncClient) -> dict[str, str]:
@@ -36,7 +44,11 @@ async def _fetch_series_categories(client: httpx.AsyncClient) -> dict[str, str]:
 
         for attempt in range(_RETRIES):
             try:
-                resp = await client.get(KALSHI_SERIES_URL, params=params)
+                resp = await client.get(
+                    KALSHI_SERIES_URL,
+                    params=params,
+                    headers=_auth("GET", _SERIES_PATH),
+                )
                 if resp.status_code == 429:
                     wait = backoff * 3
                     logger.warning("Kalshi series rate-limited, backing off %.0fs", wait)
@@ -145,6 +157,12 @@ async def fetch_kalshi_markets() -> list[NormalizedMarket]:
     now = datetime.now(timezone.utc)
     expiry_cutoff = now + timedelta(days=settings.MATCH_EXPIRY_DAYS)
 
+    authenticated = bool(settings.KALSHI_API_KEY_ID and settings.KALSHI_API_KEY)
+    if authenticated:
+        logger.info("Kalshi: using RSA-PSS authenticated requests")
+    else:
+        logger.info("Kalshi: no API keys configured, using unauthenticated requests")
+
     async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
         series_categories = await _fetch_series_categories(client)
 
@@ -163,7 +181,11 @@ async def fetch_kalshi_markets() -> list[NormalizedMarket]:
 
             for attempt in range(_RETRIES):
                 try:
-                    resp = await client.get(KALSHI_MARKETS_URL, params=params)
+                    resp = await client.get(
+                        KALSHI_MARKETS_URL,
+                        params=params,
+                        headers=_auth("GET", _MARKETS_PATH),
+                    )
                     if resp.status_code == 429:
                         wait = backoff * 3
                         logger.warning("Kalshi rate-limited, backing off %.0fs", wait)
