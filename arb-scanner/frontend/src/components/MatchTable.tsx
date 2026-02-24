@@ -1,9 +1,11 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { getMatches } from "../lib/api";
+import { wsManager } from "../lib/websocket";
+import { computeSpread } from "../lib/spread";
 import type { Match, MatchFilters } from "../lib/types";
 import MatchRow from "./MatchRow";
 
-const REFRESH_INTERVAL_MS = 5_000;
+const REFRESH_INTERVAL_MS = 30_000;
 
 // ── Skeleton loader ───────────────────────────────────────────────────────────
 
@@ -143,11 +145,50 @@ export default function MatchTable() {
     return () => abortRef.current?.abort();
   }, [fetchMatches]);
 
-  // Auto-refresh every 5s
+  // Auto-refresh every 30s as fallback (WS handles real-time updates)
   useEffect(() => {
     const id = setInterval(() => void fetchMatches(), REFRESH_INTERVAL_MS);
     return () => clearInterval(id);
   }, [fetchMatches]);
+
+  // Stable string of match IDs — only changes when the list of matches changes
+  const matchIds = useMemo(
+    () => matches.map((m) => m.id).join(","),
+    [matches]
+  );
+
+  // Subscribe to WS price updates for all current match IDs
+  useEffect(() => {
+    if (matches.length === 0) return;
+    const unsubs = matches.map((m) =>
+      wsManager.subscribe(Number(m.id), (update) => {
+        setMatches((prev) =>
+          prev.map((match) => {
+            if (match.id !== String(update.match_id)) return match;
+            const { raw_spread, fee_adjusted_spread, direction } = computeSpread(
+              update.poly_yes,
+              update.poly_no,
+              update.kalshi_yes,
+              update.kalshi_no
+            );
+            return {
+              ...match,
+              poly_yes: update.poly_yes,
+              poly_no: update.poly_no,
+              kalshi_yes: update.kalshi_yes,
+              kalshi_no: update.kalshi_no,
+              raw_spread,
+              fee_adjusted_spread,
+              direction,
+              last_updated: update.last_updated,
+            };
+          })
+        );
+      })
+    );
+    return () => unsubs.forEach((fn) => fn());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matchIds]);
 
   // Client-side filtering + sorting
   const minSpreadDecimal = minSpreadCents / 100;
