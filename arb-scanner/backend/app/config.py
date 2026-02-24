@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     MATCH_EXPIRY_DAYS: int = 7
     MIN_MATCH_VOLUME: int = 20000
     CORS_ORIGINS: str = '["*"]'
+    WS_RECONNECT_MAX_SECONDS: int = 60
 
     model_config = {"env_file": ".env"}
 

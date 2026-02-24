@@ -9,7 +9,7 @@ from app.config import settings
 from app.database import close_db, init_db
 from app.routers import markets, matches
 from app.routers.poll import router as poll_router
-from app.services import poller
+from app.services import poller, ws_manager
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s: %(message)s")
 
@@ -18,7 +18,9 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s: %(messag
 async def lifespan(app: FastAPI):
     await init_db()
     await poller.start()
+    await ws_manager.start()
     yield
+    await ws_manager.stop()
     await poller.stop()
     await close_db()
 

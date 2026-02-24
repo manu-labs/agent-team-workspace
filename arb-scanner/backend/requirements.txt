@@ -6,3 +6,4 @@ numpy==2.2.3
 pydantic==2.10.4
 pydantic-settings==2.7.1
 cryptography>=44.0.0
+websockets>=13.0

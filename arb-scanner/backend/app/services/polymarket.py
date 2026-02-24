@@ -65,6 +65,7 @@ def _normalize(raw: dict) -> NormalizedMarket | None:
         # The Gamma API returns outcomes as a JSON string: '["Yes", "No"]'
         # If the first outcome is "No", swap prices so yes_price always = YES
         outcomes_raw = raw.get("outcomes")
+        outcomes: list = []
         if outcomes_raw:
             if isinstance(outcomes_raw, str):
                 try:
@@ -73,15 +74,34 @@ def _normalize(raw: dict) -> NormalizedMarket | None:
                     outcomes = []
             elif isinstance(outcomes_raw, list):
                 outcomes = outcomes_raw
-            else:
-                outcomes = []
 
-            if len(outcomes) >= 2 and str(outcomes[0]).strip().lower() == "no":
-                logger.debug(
-                    "Polymarket %s: outcomes[0]='%s', swapping yes/no prices",
-                    market_id, outcomes[0],
+        first_outcome_is_no = (
+            len(outcomes) >= 2 and str(outcomes[0]).strip().lower() == "no"
+        )
+        if first_outcome_is_no:
+            logger.debug(
+                "Polymarket %s: outcomes[0]='%s', swapping yes/no prices",
+                market_id, outcomes[0],
+            )
+            yes_price, no_price = no_price, yes_price
+
+        # Extract CLOB token ID for real-time WebSocket subscriptions.
+        # clobTokenIds is a JSON string of two token IDs: [YES_TOKEN, NO_TOKEN].
+        # When outcomes[0] is "No" (prices were swapped), the YES token is index 1.
+        clob_token_ids_raw = raw.get("clobTokenIds")
+        clob_token_id = ""
+        if clob_token_ids_raw:
+            try:
+                clob_tokens = (
+                    json.loads(clob_token_ids_raw)
+                    if isinstance(clob_token_ids_raw, str)
+                    else clob_token_ids_raw
                 )
-                yes_price, no_price = no_price, yes_price
+                if isinstance(clob_tokens, list) and len(clob_tokens) >= 2:
+                    # YES token is index 1 if outcomes were swapped, else index 0
+                    clob_token_id = str(clob_tokens[1] if first_outcome_is_no else clob_tokens[0])
+            except (json.JSONDecodeError, IndexError):
+                pass
 
         # Extract category from tags list
         tags = raw.get("tags") or []
@@ -133,6 +153,7 @@ def _normalize(raw: dict) -> NormalizedMarket | None:
             end_date=end_date,
             url=url,
             embed_text=embed_text,
+            clob_token_ids=clob_token_id,
             raw_data=raw,
             last_updated=datetime.now(timezone.utc),
         )
@@ -250,25 +271,28 @@ async def ingest_polymarket() -> dict:
             await db.execute(
                 """
                 INSERT INTO markets (id, platform, question, category, yes_price, no_price,
-                                     volume, end_date, url, raw_data, last_updated, embed_text)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                     volume, end_date, url, raw_data, last_updated,
+                                     embed_text, clob_token_ids)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
-                    question     = excluded.question,
-                    category     = excluded.category,
-                    yes_price    = excluded.yes_price,
-                    no_price     = excluded.no_price,
-                    volume       = excluded.volume,
-                    end_date     = excluded.end_date,
-                    url          = excluded.url,
-                    raw_data     = excluded.raw_data,
-                    last_updated = excluded.last_updated,
-                    embed_text   = excluded.embed_text
+                    question       = excluded.question,
+                    category       = excluded.category,
+                    yes_price      = excluded.yes_price,
+                    no_price       = excluded.no_price,
+                    volume         = excluded.volume,
+                    end_date       = excluded.end_date,
+                    url            = excluded.url,
+                    raw_data       = excluded.raw_data,
+                    last_updated   = excluded.last_updated,
+                    embed_text     = excluded.embed_text,
+                    clob_token_ids = excluded.clob_token_ids
                 """,
                 (
                     m.id, m.platform, m.question, m.category,
                     m.yes_price, m.no_price, m.volume,
                     m.end_date.isoformat() if m.end_date else None,
-                    m.url, '{}', m.last_updated.isoformat(), m.embed_text,
+                    m.url, '{}', m.last_updated.isoformat(),
+                    m.embed_text, m.clob_token_ids,
                 ),
             )
             upserted += 1

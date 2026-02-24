@@ -33,7 +33,8 @@ async def init_db():
             url TEXT DEFAULT '',
             raw_data TEXT DEFAULT '{}',
             last_updated TEXT NOT NULL,
-            embed_text TEXT DEFAULT ''
+            embed_text TEXT DEFAULT '',
+            clob_token_ids TEXT DEFAULT ''
         );
 
         CREATE TABLE IF NOT EXISTS matches (
@@ -79,11 +80,15 @@ async def init_db():
         CREATE INDEX IF NOT EXISTS idx_embeddings_market ON market_embeddings(market_id);
     """)
 
-    # Migration: add embed_text column to existing databases that predate this column
-    try:
-        await db.execute("ALTER TABLE markets ADD COLUMN embed_text TEXT DEFAULT ''")
-    except Exception:
-        pass  # Column already exists — safe to ignore
+    # Migration: add columns to existing databases that predate them
+    for migration in [
+        "ALTER TABLE markets ADD COLUMN embed_text TEXT DEFAULT ''",
+        "ALTER TABLE markets ADD COLUMN clob_token_ids TEXT DEFAULT ''",
+    ]:
+        try:
+            await db.execute(migration)
+        except Exception:
+            pass  # Column already exists — safe to ignore
 
     await db.commit()
 
