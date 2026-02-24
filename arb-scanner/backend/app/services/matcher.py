@@ -3,7 +3,7 @@
 Uses httpx to call Groq API directly (the groq library has connection
 issues in Railway network -- same lesson from Auto-RSVP).
 
-Pass 1: Candidate discovery -- batch by category, ask LLM to identify pairs.
+Pass 1: Candidate discovery -- cosine similarity via OpenAI embeddings (zero LLM calls).
 Pass 2: Confirmation -- verify resolution criteria match for high-confidence candidates.
 
 Interface: match_markets(poly_markets, kalshi_markets) -> list[dict]
@@ -13,21 +13,20 @@ Called by the background poller which handles DB upsert.
 import hashlib
 import json
 import logging
-from collections import defaultdict
 
 import httpx
 
 from app.config import settings
 from app.database import get_db
+from app.services.embeddings import find_embedding_candidates
 
 logger = logging.getLogger(__name__)
 
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = "llama-3.3-70b-versatile"
 _CONFIDENCE_THRESHOLD = 0.7
-_BATCH_SIZE = 30
-_MAX_BATCHES_PER_CATEGORY = 5
 _RETRIES = 3
+_MAX_CONFIRMATIONS_PER_CYCLE = 50
 
 
 def _cache_key(poly_id: str, kalshi_id: str) -> str:
@@ -129,78 +128,6 @@ def _market_to_dict(market) -> dict:
     }
 
 
-async def _pass1_candidates(
-    poly_markets: list,
-    kalshi_markets: list,
-) -> list[dict]:
-    """Pass 1: Batch markets by category and ask LLM to find matching pairs."""
-    if not poly_markets or not kalshi_markets:
-        return []
-
-    poly_dicts = [_market_to_dict(m) for m in poly_markets]
-    kalshi_dicts = [_market_to_dict(m) for m in kalshi_markets]
-
-    poly_by_cat = defaultdict(list)
-    kalshi_by_cat = defaultdict(list)
-
-    for m in poly_dicts:
-        cat = (m.get("category") or "uncategorized").lower().strip()
-        poly_by_cat[cat].append(m)
-    for m in kalshi_dicts:
-        cat = (m.get("category") or "uncategorized").lower().strip()
-        kalshi_by_cat[cat].append(m)
-
-    all_candidates = []
-    all_cats = set(poly_by_cat.keys()) | set(kalshi_by_cat.keys())
-
-    for cat in all_cats:
-        poly_list = poly_by_cat.get(cat, [])
-        kalshi_list = kalshi_by_cat.get(cat, [])
-        if not poly_list or not kalshi_list:
-            continue
-
-        batch_count = 0
-        for batch_start in range(0, max(len(poly_list), len(kalshi_list)), _BATCH_SIZE):
-            if batch_count >= _MAX_BATCHES_PER_CATEGORY:
-                logger.info("Pass 1 [%s]: hit batch limit (%d), skipping remaining", cat, _MAX_BATCHES_PER_CATEGORY)
-                break
-            poly_batch = poly_list[batch_start:batch_start + _BATCH_SIZE]
-            kalshi_batch = kalshi_list[batch_start:batch_start + _BATCH_SIZE]
-            if not poly_batch or not kalshi_batch:
-                continue
-
-            poly_items = "\n".join(
-                f"  - ID: {m['id']}, Question: {m['question']}"
-                for m in poly_batch
-            )
-            kalshi_items = "\n".join(
-                f"  - ID: {m['id']}, Question: {m['question']}"
-                for m in kalshi_batch
-            )
-
-            prompt = f"""Given these Polymarket markets:
-{poly_items}
-
-And these Kalshi markets:
-{kalshi_items}
-
-Identify pairs that are asking the same underlying question (even if worded differently).
-Return ONLY a JSON array. Each element: {{"poly_id": "...", "kalshi_id": "...", "confidence": 0.95, "reasoning": "..."}}
-If no matches found, return [].
-"""
-            system = "You are a prediction market analyst. Match markets across platforms that ask the same question. Be precise -- only match markets with the same resolution criteria. Return valid JSON only."
-
-            response = await _call_groq(prompt, system)
-            if response:
-                candidates = _parse_json_response(response)
-                all_candidates.extend(candidates)
-                logger.info("Pass 1 [%s] batch %d: found %d candidates", cat, batch_count, len(candidates))
-            batch_count += 1
-
-    logger.info("Pass 1 complete: %d total candidates across all categories", len(all_candidates))
-    return all_candidates
-
-
 async def _pass2_confirm(candidate: dict, markets_by_id: dict) -> dict | None:
     """Pass 2: Confirm a candidate pair using full market details."""
     poly_id = candidate.get("poly_id", "")
@@ -273,6 +200,9 @@ async def match_markets(
 ) -> list[dict]:
     """Run two-pass matching on the provided market lists.
 
+    Pass 1: Embedding cosine similarity (zero LLM calls).
+    Pass 2: Groq LLM confirmation (capped at _MAX_CONFIRMATIONS_PER_CYCLE).
+
     Args:
         polymarket_markets: List of NormalizedMarket or dicts from Polymarket
         kalshi_markets: List of NormalizedMarket or dicts from Kalshi
@@ -302,15 +232,28 @@ async def match_markets(
         d = _market_to_dict(m)
         all_markets[d["id"]] = d
 
-    # Pass 1: Candidate discovery
-    candidates = await _pass1_candidates(polymarket_markets, kalshi_markets)
+    # Pass 1: Candidate discovery via embeddings (zero LLM calls)
+    candidates = await find_embedding_candidates(db)
+    if not candidates:
+        logger.info("Pass 1: no embedding candidates — embeddings may not be ready yet")
+        return []
 
-    # Pass 2: Confirmation (skip cached)
+    logger.info("Pass 1 complete: %d embedding candidates", len(candidates))
+
+    # Pass 2: Confirmation (skip cached, cap at _MAX_CONFIRMATIONS_PER_CYCLE)
     confirmed = []
     cached = 0
     errors = 0
+    llm_calls = 0
 
     for cand in candidates:
+        if llm_calls >= _MAX_CONFIRMATIONS_PER_CYCLE:
+            logger.info(
+                "Pass 2: reached confirmation cap (%d), stopping early",
+                _MAX_CONFIRMATIONS_PER_CYCLE,
+            )
+            break
+
         poly_id = cand.get("poly_id", "")
         kalshi_id = cand.get("kalshi_id", "")
         key = _cache_key(poly_id, kalshi_id)
@@ -321,6 +264,7 @@ async def match_markets(
 
         try:
             result = await _pass2_confirm(cand, all_markets)
+            llm_calls += 1
             if result:
                 confirmed.append(result)
         except Exception as exc:
@@ -328,7 +272,7 @@ async def match_markets(
             errors += 1
 
     logger.info(
-        "Matching complete -- candidates: %d, confirmed: %d, cached_skipped: %d, errors: %d",
-        len(candidates), len(confirmed), cached, errors,
+        "Matching complete -- candidates: %d, llm_calls: %d, confirmed: %d, cached_skipped: %d, errors: %d",
+        len(candidates), llm_calls, len(confirmed), cached, errors,
     )
     return confirmed
