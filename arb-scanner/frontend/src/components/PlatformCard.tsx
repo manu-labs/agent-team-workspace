@@ -1,3 +1,5 @@
+import { useFlashOnChange } from "../hooks/useFlashOnChange";
+
 interface PlatformCardProps {
   name: "Polymarket" | "Kalshi";
   yes: number;
@@ -39,6 +41,9 @@ export default function PlatformCard({
   const volumeValue = isPolymarket ? fmtUSD(volume) : fmtContracts(volume);
   const volumeUnit = isPolymarket ? "USD" : "contracts";
 
+  const yesFlash = useFlashOnChange(yes);
+  const noFlash = useFlashOnChange(no);
+
   return (
     <div
       className={[
@@ -74,7 +79,9 @@ export default function PlatformCard({
           <p className="font-mono text-[10px] uppercase tracking-wider text-zinc-600">
             YES
           </p>
-          <p className="mt-1 font-mono text-2xl font-bold tabular-nums text-zinc-100">
+          <p
+            className={`mt-1 font-mono text-2xl font-bold tabular-nums text-zinc-100 ${yesFlash ? "animate-flash-green" : ""}`}
+          >
             {fmt(yes)}
           </p>
         </div>
@@ -82,7 +89,9 @@ export default function PlatformCard({
           <p className="font-mono text-[10px] uppercase tracking-wider text-zinc-600">
             NO
           </p>
-          <p className="mt-1 font-mono text-2xl font-bold tabular-nums text-zinc-500">
+          <p
+            className={`mt-1 font-mono text-2xl font-bold tabular-nums text-zinc-500 ${noFlash ? "animate-flash-green" : ""}`}
+          >
             {fmt(no)}
           </p>
         </div>

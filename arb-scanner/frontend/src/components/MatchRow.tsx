@@ -1,6 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import type { Match } from "../lib/types";
 import SpreadBadge, { spreadRowBg } from "./SpreadBadge";
+import { useFlashOnChange } from "../hooks/useFlashOnChange";
 
 // ── Formatters ────────────────────────────────────────────────────────────────
 
@@ -88,6 +89,9 @@ export default function MatchRow({ match }: MatchRowProps) {
   const navigate = useNavigate();
   const rowBg = spreadRowBg(match.fee_adjusted_spread);
 
+  const polyFlash = useFlashOnChange(match.poly_yes);
+  const kalshiFlash = useFlashOnChange(match.kalshi_yes);
+
   function handleRowClick() {
     navigate(`/matches/${match.id}`);
   }
@@ -116,12 +120,16 @@ export default function MatchRow({ match }: MatchRowProps) {
         </td>
 
         {/* Poly YES */}
-        <td className="data-cell whitespace-nowrap px-3 py-2.5 text-zinc-400">
+        <td
+          className={`data-cell whitespace-nowrap px-3 py-2.5 text-zinc-400 ${polyFlash ? "animate-flash-green" : ""}`}
+        >
           {formatPrice(match.poly_yes)}
         </td>
 
         {/* Kalshi YES */}
-        <td className="data-cell whitespace-nowrap px-3 py-2.5 text-zinc-400">
+        <td
+          className={`data-cell whitespace-nowrap px-3 py-2.5 text-zinc-400 ${kalshiFlash ? "animate-flash-green" : ""}`}
+        >
           {formatPrice(match.kalshi_yes)}
         </td>
 
@@ -185,13 +193,13 @@ export default function MatchRow({ match }: MatchRowProps) {
             <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-xs text-zinc-500">
               <span>
                 Poly{" "}
-                <span className="text-zinc-300">
+                <span className={`text-zinc-300 ${polyFlash ? "animate-flash-green" : ""}`}>
                   {formatPrice(match.poly_yes)}
                 </span>
               </span>
               <span>
                 Kalshi{" "}
-                <span className="text-zinc-300">
+                <span className={`text-zinc-300 ${kalshiFlash ? "animate-flash-green" : ""}`}>
                   {formatPrice(match.kalshi_yes)}
                 </span>
               </span>
