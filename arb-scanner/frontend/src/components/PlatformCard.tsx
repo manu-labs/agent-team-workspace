@@ -4,8 +4,8 @@ interface PlatformCardProps {
   no: number;
   volume: number;
   url: string;
-  /** Highlight this platform as the buy side */
-  buyHere?: boolean;
+  /** Which contract to buy on this platform */
+  buyAction?: "YES" | "NO";
 }
 
 function fmt(n: number): string {
@@ -24,13 +24,13 @@ export default function PlatformCard({
   no,
   volume,
   url,
-  buyHere,
+  buyAction,
 }: PlatformCardProps) {
   return (
     <div
       className={[
         "flex flex-col border bg-terminal-surface p-4",
-        buyHere ? "border-profit/40" : "border-terminal-border",
+        buyAction ? "border-profit/40" : "border-terminal-border",
       ].join(" ")}
     >
       {/* Header */}
@@ -39,9 +39,9 @@ export default function PlatformCard({
           <h3 className="font-mono text-xs font-semibold uppercase tracking-wider text-zinc-300">
             {name}
           </h3>
-          {buyHere && (
+          {buyAction && (
             <span className="border border-profit/40 bg-profit/10 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-profit">
-              Buy here
+              BUY {buyAction}
             </span>
           )}
         </div>
