@@ -112,14 +112,15 @@ def _normalize(raw: dict, series_categories: dict[str, str]) -> NormalizedMarket
             yes_price = max(0.0, min(1.0, float(yes_ask_raw or 0) / 100.0))
 
         # Read no_price from the actual NO-side order book instead of assuming 1 - yes
-        # Fallback chain: midpoint(no_bid, no_ask) → no_ask alone → 1 - yes_price
+        # Use no_ask (price to buy NO) to match what Kalshi shows on their site
+        # Fallback chain: no_ask → no_bid → 1 - yes_price
         no_ask_raw = raw.get("no_ask", 0)
         no_bid_raw = raw.get("no_bid", 0)
 
-        if no_ask_raw and no_bid_raw:
-            no_price = max(0.0, min(1.0, (float(no_ask_raw) + float(no_bid_raw)) / 200.0))
-        elif no_ask_raw:
+        if no_ask_raw and no_ask_raw > 0:
             no_price = max(0.0, min(1.0, float(no_ask_raw) / 100.0))
+        elif no_bid_raw and no_bid_raw > 0:
+            no_price = max(0.0, min(1.0, float(no_bid_raw) / 100.0))
         else:
             no_price = max(0.0, min(1.0, 1.0 - yes_price))
 
@@ -303,4 +304,5 @@ async def ingest_kalshi() -> dict[str, int]:
         len(markets), upserted, errors,
     )
     return {"fetched": len(markets), "upserted": upserted, "errors": errors}
+
 
