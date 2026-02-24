@@ -1,5 +1,7 @@
 """Poll router — manual trigger, status, and admin cleanup endpoints."""
 
+from datetime import datetime, timedelta, timezone
+
 from fastapi import APIRouter
 
 from app.database import get_db
@@ -30,6 +32,9 @@ async def cleanup_stale_data():
     """
     db = await get_db()
 
+    now_iso = datetime.now(timezone.utc).isoformat()
+    cutoff_iso = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+
     # Count before cleanup
     before_matches = (await (await db.execute("SELECT COUNT(*) FROM matches")).fetchone())[0]
     before_markets = (await (await db.execute("SELECT COUNT(*) FROM markets")).fetchone())[0]
@@ -46,12 +51,12 @@ async def cleanup_stale_data():
                OR COALESCE(km.volume, 0) < 20000
                OR pm.end_date IS NULL
                OR km.end_date IS NULL
-               OR pm.end_date <= datetime('now')
-               OR km.end_date <= datetime('now')
-               OR pm.end_date > datetime('now', '+7 days')
-               OR km.end_date > datetime('now', '+7 days')
+               OR pm.end_date <= ?
+               OR km.end_date <= ?
+               OR pm.end_date > ?
+               OR km.end_date > ?
         )
-    """)
+    """, [now_iso, now_iso, cutoff_iso, cutoff_iso])
 
     # 2. Delete matches where either market doesn't meet criteria
     await db.execute("""
@@ -63,21 +68,21 @@ async def cleanup_stale_data():
                OR COALESCE(km.volume, 0) < 20000
                OR pm.end_date IS NULL
                OR km.end_date IS NULL
-               OR pm.end_date <= datetime('now')
-               OR km.end_date <= datetime('now')
-               OR pm.end_date > datetime('now', '+7 days')
-               OR km.end_date > datetime('now', '+7 days')
+               OR pm.end_date <= ?
+               OR km.end_date <= ?
+               OR pm.end_date > ?
+               OR km.end_date > ?
         )
-    """)
+    """, [now_iso, now_iso, cutoff_iso, cutoff_iso])
 
     # 3. Delete markets that don't meet criteria
     await db.execute("""
         DELETE FROM markets WHERE
             volume < 20000
             OR end_date IS NULL
-            OR end_date <= datetime('now')
-            OR end_date > datetime('now', '+7 days')
-    """)
+            OR end_date <= ?
+            OR end_date > ?
+    """, [now_iso, cutoff_iso])
 
     # 4. Delete orphaned embeddings (market was deleted)
     await db.execute("""
