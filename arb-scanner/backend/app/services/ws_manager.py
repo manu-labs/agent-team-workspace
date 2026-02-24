@@ -6,6 +6,8 @@ Responsibilities:
   - Subscription sync: subscribe new matches, unsubscribe removed matches
   - Price update callbacks: update markets table, recalculate match spreads,
     record throttled price_history snapshots
+  - Broadcast callbacks: push price updates to registered consumers
+    (e.g. the client-facing /ws endpoint)
 
 Called from:
   - main.py lifespan (start/stop)
@@ -16,6 +18,7 @@ import asyncio
 import logging
 import time
 from datetime import datetime, timezone
+from typing import Awaitable, Callable
 
 from app.database import get_db
 from app.services.calculator import calculate_spread
@@ -42,6 +45,16 @@ _db_write_lock = asyncio.Lock()
 # Market and match price columns are still updated on every event (real-time).
 _HISTORY_INTERVAL = 15.0  # seconds
 _last_history_ts: dict[int, float] = {}  # match_id → last insert monotonic time
+
+# Broadcast callbacks — registered by consumers (e.g. client WS router) that want
+# to receive price updates. Called after each match spread recalculation.
+# Signature: async fn(match_id: int, data: dict) -> None
+_broadcast_callbacks: list[Callable[[int, dict], Awaitable[None]]] = []
+
+
+def register_broadcast(fn: Callable[[int, dict], Awaitable[None]]) -> None:
+    """Register a callback to receive price updates for broadcasting to clients."""
+    _broadcast_callbacks.append(fn)
 
 
 async def start() -> None:
@@ -193,7 +206,12 @@ async def _update_market_and_matches(market_id: str, yes_price: float, no_price:
 
     All DB writes are serialised under _db_write_lock to prevent aiosqlite
     "database is locked" errors from concurrent WS callbacks.
+
+    After DB commit, price updates are broadcast to registered callbacks
+    (e.g. client-facing /ws endpoint) outside the DB lock.
     """
+    updates_to_broadcast: list[tuple[int, dict]] = []
+
     try:
         async with _db_write_lock:
             db = await get_db()
@@ -258,7 +276,29 @@ async def _update_market_and_matches(market_id: str, yes_price: float, no_price:
                     )
                     _last_history_ts[match_id] = now_ts
 
+                # Collect broadcast payload (sent outside the lock)
+                updates_to_broadcast.append((match_id, {
+                    "type": "price_update",
+                    "match_id": match_id,
+                    "poly_yes": round(poly_yes, 6),
+                    "poly_no": round(1.0 - poly_yes, 6),
+                    "kalshi_yes": round(kalshi_yes, 6),
+                    "kalshi_no": round(1.0 - kalshi_yes, 6),
+                    "spread": round(sd["raw_spread"], 6),
+                    "fee_adjusted_spread": round(sd["fee_adjusted_spread"], 6),
+                    "last_updated": now,
+                }))
+
             await db.commit()
 
     except Exception as exc:
         logger.error("WS price update failed for %s: %s", market_id, exc, exc_info=True)
+        return
+
+    # Broadcast to registered consumers (e.g. client-facing /ws) outside the DB lock
+    for match_id, payload in updates_to_broadcast:
+        for cb in _broadcast_callbacks:
+            try:
+                await cb(match_id, payload)
+            except Exception as exc:
+                logger.debug("Broadcast callback failed for match %d: %s", match_id, exc)
