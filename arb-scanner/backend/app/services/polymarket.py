@@ -95,6 +95,14 @@ def _normalize(raw: dict) -> NormalizedMarket | None:
         slug = event_slug or raw.get("slug") or ""
         url = f"https://polymarket.com/event/{slug}" if slug else ""
 
+        # Build enriched embedding text — adds market description so similar
+        # questions with different resolution details get distinct embeddings.
+        description = ((raw.get("description") or "")[:300]).strip()
+        parts = [question]
+        if description:
+            parts.append(description)
+        embed_text = ". ".join(parts)
+
         return NormalizedMarket(
             id=f"{_PLATFORM}:{market_id}",
             platform=_PLATFORM,
@@ -105,6 +113,7 @@ def _normalize(raw: dict) -> NormalizedMarket | None:
             volume=volume,
             end_date=end_date,
             url=url,
+            embed_text=embed_text,
             raw_data=raw,
             last_updated=datetime.now(timezone.utc),
         )
@@ -113,12 +122,19 @@ def _normalize(raw: dict) -> NormalizedMarket | None:
         return None
 
 
-async def _fetch_page(client: httpx.AsyncClient, offset: int) -> list[dict]:
+async def _fetch_page(
+    client: httpx.AsyncClient,
+    offset: int,
+    end_date_min: str,
+    end_date_max: str,
+) -> list[dict]:
     """Fetch a single page from the Gamma API with retry/backoff."""
     params = {
         "active": "true",
         "closed": "false",
         "archived": "false",
+        "end_date_min": end_date_min,
+        "end_date_max": end_date_max,
         "offset": offset,
         "limit": _PAGE_SIZE,
     }
@@ -152,18 +168,21 @@ async def _fetch_page(client: httpx.AsyncClient, offset: int) -> list[dict]:
 
 
 async def fetch_polymarket_markets() -> list[NormalizedMarket]:
-    """Fetch active Polymarket markets expiring within MATCH_EXPIRY_DAYS with MIN_MATCH_VOLUME."""
+    """Fetch active Polymarket markets via server-side date filter + MIN_MATCH_VOLUME."""
     markets: list[NormalizedMarket] = []
-    expiry_filtered = 0
     low_volume_filtered = 0
     offset = 0
 
     now = datetime.now(timezone.utc)
     expiry_cutoff = now + timedelta(days=settings.MATCH_EXPIRY_DAYS)
 
+    # ISO 8601 format for Gamma API end_date_min/end_date_max params
+    end_date_min = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    end_date_max = expiry_cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
+
     async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
         while True:
-            raw_markets = await _fetch_page(client, offset)
+            raw_markets = await _fetch_page(client, offset, end_date_min, end_date_max)
             if not raw_markets:
                 break
 
@@ -172,16 +191,7 @@ async def fetch_polymarket_markets() -> list[NormalizedMarket]:
                 if not market:
                     continue
 
-                # Skip markets with no end date, already expired, or too far out
-                if (
-                    market.end_date is None
-                    or market.end_date <= now
-                    or market.end_date > expiry_cutoff
-                ):
-                    expiry_filtered += 1
-                    continue
-
-                # Skip low-volume markets
+                # Skip low-volume markets (expiry filtering is done server-side)
                 if market.volume < settings.MIN_MATCH_VOLUME:
                     low_volume_filtered += 1
                     continue
@@ -195,8 +205,8 @@ async def fetch_polymarket_markets() -> list[NormalizedMarket]:
             offset += _PAGE_SIZE
 
     logger.info(
-        "Polymarket: %d markets kept (expired/too-far: %d, low-volume: %d)",
-        len(markets), expiry_filtered, low_volume_filtered,
+        "Polymarket: %d markets kept (low-volume filtered: %d)",
+        len(markets), low_volume_filtered,
     )
     return markets
 
@@ -221,8 +231,8 @@ async def ingest_polymarket() -> dict[str, int]:
             await db.execute(
                 """
                 INSERT INTO markets (id, platform, question, category, yes_price, no_price,
-                                     volume, end_date, url, raw_data, last_updated)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                     volume, end_date, url, raw_data, last_updated, embed_text)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     question     = excluded.question,
                     category     = excluded.category,
@@ -232,13 +242,14 @@ async def ingest_polymarket() -> dict[str, int]:
                     end_date     = excluded.end_date,
                     url          = excluded.url,
                     raw_data     = excluded.raw_data,
-                    last_updated = excluded.last_updated
+                    last_updated = excluded.last_updated,
+                    embed_text   = excluded.embed_text
                 """,
                 (
                     m.id, m.platform, m.question, m.category,
                     m.yes_price, m.no_price, m.volume,
                     m.end_date.isoformat() if m.end_date else None,
-                    m.url, '{}', m.last_updated.isoformat(),
+                    m.url, '{}', m.last_updated.isoformat(), m.embed_text,
                 ),
             )
             upserted += 1
