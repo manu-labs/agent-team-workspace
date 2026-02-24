@@ -144,6 +144,17 @@ def _normalize(raw: dict, series_categories: dict[str, str]) -> NormalizedMarket
         # with order_by=querymatch for best results (per Supreme Leader).
         url = f"https://kalshi.com/search?q={quote(title)}&order_by=querymatch"
 
+        # Build enriched embedding text — helps distinguish sports contracts where
+        # multiple tickers share the same title (e.g. opposite sides of a game).
+        yes_sub = (raw.get("yes_sub_title") or "").strip()
+        rules = ((raw.get("rules_primary") or "")[:300]).strip()
+        parts = [title]
+        if yes_sub:
+            parts.append(f"YES means: {yes_sub}")
+        if rules:
+            parts.append(rules)
+        embed_text = ". ".join(parts)
+
         return NormalizedMarket(
             id=f"{_PLATFORM}:{ticker}",
             platform=_PLATFORM,
@@ -154,6 +165,7 @@ def _normalize(raw: dict, series_categories: dict[str, str]) -> NormalizedMarket
             volume=volume,
             end_date=end_date,
             url=url,
+            embed_text=embed_text,
             raw_data=raw,
             last_updated=datetime.now(timezone.utc),
         )
@@ -234,7 +246,7 @@ async def fetch_kalshi_markets() -> list[NormalizedMarket]:
                 if not market:
                     continue
 
-                # Skip low-volume markets
+                # Skip low-volume markets (expiry filtering is done server-side)
                 if market.volume < settings.MIN_MATCH_VOLUME:
                     low_volume_filtered += 1
                     continue
@@ -273,8 +285,8 @@ async def ingest_kalshi() -> dict[str, int]:
             await db.execute(
                 """
                 INSERT INTO markets (id, platform, question, category, yes_price, no_price,
-                                     volume, end_date, url, raw_data, last_updated)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                     volume, end_date, url, raw_data, last_updated, embed_text)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     question     = excluded.question,
                     category     = excluded.category,
@@ -284,13 +296,14 @@ async def ingest_kalshi() -> dict[str, int]:
                     end_date     = excluded.end_date,
                     url          = excluded.url,
                     raw_data     = excluded.raw_data,
-                    last_updated = excluded.last_updated
+                    last_updated = excluded.last_updated,
+                    embed_text   = excluded.embed_text
                 """,
                 (
                     m.id, m.platform, m.question, m.category,
                     m.yes_price, m.no_price, m.volume,
                     m.end_date.isoformat() if m.end_date else None,
-                    m.url, '{}', m.last_updated.isoformat(),
+                    m.url, '{}', m.last_updated.isoformat(), m.embed_text,
                 ),
             )
             upserted += 1
