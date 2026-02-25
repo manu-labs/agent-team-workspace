@@ -12,6 +12,10 @@ class Settings(BaseSettings):
     PRICE_REFRESH_INTERVAL_SECONDS: int = 15
     MATCH_EXPIRY_DAYS: int = 7
     MIN_MATCH_VOLUME: int = 20000
+    # Sports markets have far lower volume than general markets (Kalshi NBA games
+    # range from $69-$18K vs $20K+ for other markets). Use a separate floor so
+    # sports markets aren't filtered out before deterministic slug matching.
+    MIN_SPORTS_VOLUME: int = 0
     CORS_ORIGINS: str = '["*"]'
     WS_RECONNECT_MAX_SECONDS: int = 60
 
