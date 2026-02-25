@@ -77,14 +77,27 @@ TEAM_ALIASES: dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 # Polymarket: {league}-{team1}-{team2}-{YYYY-MM-DD}[-anything]
-# League: 2-10 alnum chars; team codes: 2-6 alpha chars, optional trailing digit
+# League: 2-10 alnum chars; team codes: 2-7 alphanumeric chars
+# Using [a-z\d]{2,7} to handle codes like "c9" (Cloud9), "liquid", "okc", "rma1"
 _POLY_SLUG_RE = re.compile(
-    r"^([a-z0-9]+)-([a-z]{2,6}\d?)-([a-z]{2,6}\d?)-(\d{4}-\d{2}-\d{2})",
+    r"^([a-z0-9]+)-([a-z\d]{2,7})-([a-z\d]{2,7})-(\d{4}-\d{2}-\d{2})",
     re.IGNORECASE,
 )
 
-# Strip trailing digit(s) from team codes (rma1 → rma, ata1 → ata)
+# Strip trailing digit disambiguation suffixes from UCL team codes (rma1→rma, ata1→ata).
+# Only strip when at least 2 chars remain so esports codes like "c9" are preserved
+# (stripping the 9 would leave "c", which is a fragment, not a team code).
 _TRAILING_DIGITS_RE = re.compile(r"\d+$")
+
+
+def _strip_ucl_suffix(code: str) -> str:
+    """Strip trailing digit only when ≥2 chars remain after stripping.
+
+    UCL disambiguation: rma1→rma, ata1→ata (digit is a suffix)
+    Esports codes:      c9→c9, t1→t1 (digit is part of the name, keep it)
+    """
+    stripped = _TRAILING_DIGITS_RE.sub("", code)
+    return stripped if len(stripped) >= 2 else code
 
 # Kalshi suffix: YYMMMDD + optional HHMM time code + team codes (2-12 alpha)
 #   YY   = last 2 digits of year (26 → 2026)
@@ -119,7 +132,8 @@ def parse_poly_slug(slug: str) -> tuple[str, str, str, str] | None:
 
     Examples:
         "nba-okc-det-2026-02-25"     → ("nba", "okc", "det", "2026-02-25")
-        "ucl-rma1-ben-2026-02-25"    → ("ucl", "rma", "ben", "2026-02-25")
+        "ucl-rma1-ben-2026-02-25"    → ("ucl", "rma", "ben", "2026-02-25")  # UCL suffix stripped
+        "lol-c9-tlm-2026-03-01"      → ("lol", "c9", "tlm", "2026-03-01")   # esports digit kept
         "es2-ceu-cor-2026-02-08"     → ("laliga2", "ceu", "cor", "2026-02-08")
         "btc-usd-100000-2026-03-31"  → None  (not in POLY_LEAGUE_MAP)
         ""                           → None
@@ -137,9 +151,10 @@ def parse_poly_slug(slug: str) -> tuple[str, str, str, str] | None:
     if not league:
         return None
 
-    # Strip trailing digits: rma1 → rma, ata1 → ata
-    team1 = _TRAILING_DIGITS_RE.sub("", raw_t1)
-    team2 = _TRAILING_DIGITS_RE.sub("", raw_t2)
+    # Strip UCL disambiguation digit suffix (rma1→rma) while preserving
+    # esports codes where the digit is part of the name (c9→c9, not c9→c)
+    team1 = _strip_ucl_suffix(raw_t1)
+    team2 = _strip_ucl_suffix(raw_t2)
     if not team1 or not team2:
         return None
 
@@ -307,3 +322,4 @@ def match_sports_deterministic(
         len(matched),
     )
     return matched
+
