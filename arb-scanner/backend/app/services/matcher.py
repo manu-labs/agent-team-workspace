@@ -1,10 +1,12 @@
-"""Groq LLM matcher -- two-pass matching between Polymarket and Kalshi markets.
+"""Groq LLM matcher -- multi-pass matching between Polymarket and Kalshi markets.
 
 Uses httpx to call Groq API directly (the groq library has connection
 issues in Railway network -- same lesson from Auto-RSVP).
 
+Pass 0: Sports keyword candidates -- team name/city lookup table (zero LLM calls).
 Pass 1: Candidate discovery -- cosine similarity via OpenAI embeddings (zero LLM calls).
 Pass 1.5: Date pre-filter -- skip pairs with mismatched end_dates (zero LLM calls).
+Pass 1.6: Numeric threshold pre-filter -- skip mismatched dollar/unit values.
 Pass 2: Confirmation -- verify resolution criteria match for high-confidence candidates.
 
 Interface: match_markets(poly_markets, kalshi_markets) -> list[dict]
@@ -14,6 +16,7 @@ Called by the background poller which handles DB upsert.
 import hashlib
 import json
 import logging
+import re
 from datetime import datetime
 
 import httpx
@@ -34,7 +37,7 @@ _MAX_CONFIRMATIONS_PER_CYCLE = 200
 # to proceed to LLM confirmation. Pairs with dates further apart are
 # skipped instantly — no LLM call needed.
 # 24 hours covers timezone differences and same-day resolution windows.
-_DATE_TOLERANCE_SECONDS = 3600  # 1 hour
+_DATE_TOLERANCE_SECONDS = 259200  # 3 days — accommodates sports settlement offsets
 
 # In-memory rejection cache — tracks pairs that Groq has already rejected.
 # Prevents re-evaluating the same rejected pairs every discovery cycle,
@@ -78,6 +81,177 @@ def _dates_compatible(poly_end, kalshi_end) -> bool:
 
     diff = abs((poly_dt - kalshi_dt).total_seconds())
     return diff <= _DATE_TOLERANCE_SECONDS
+
+
+# Matches dollar amounts ($2,100 / $100K / $1.5M) and bare numbers with units
+# (3 inches, 4.5 inches, 3.0 inches, etc.)
+_DOLLAR_RE = re.compile(r"\$([\d,]+(?:\.\d+)?)\s*([KkMmBb])?")
+_NUMBER_UNIT_RE = re.compile(r"(\d+(?:\.\d+)?)\s+(?:inches|inch|in)\b", re.IGNORECASE)
+
+
+def _extract_numeric_thresholds(text: str) -> set[float]:
+    """Extract significant numeric thresholds from question text.
+
+    Catches dollar amounts ($2,100 / $100K) and measurement values (3 inches).
+    """
+    values: set[float] = set()
+    # Dollar amounts
+    for num_str, suffix in _DOLLAR_RE.findall(text):
+        num_str = num_str.replace(",", "")
+        multiplier = (
+            {"k": 1e3, "m": 1e6, "b": 1e9}.get(suffix.lower(), 1) if suffix else 1
+        )
+        try:
+            values.add(float(num_str) * multiplier)
+        except ValueError:
+            pass
+    # Measurement values (inches for weather markets)
+    for num_str in _NUMBER_UNIT_RE.findall(text):
+        try:
+            values.add(float(num_str))
+        except ValueError:
+            pass
+    return values
+
+
+def _thresholds_compatible(poly_q: str, kalshi_q: str) -> bool:
+    """Return False if both questions contain numeric thresholds that don't overlap.
+
+    Kills crypto price-bin noise (ETH $2,100 vs $2,750) and weather-bin noise
+    (rain 3 inches vs 5 inches) without any LLM call.
+    If either side has no thresholds, returns True (let LLM decide).
+    """
+    poly_vals = _extract_numeric_thresholds(poly_q)
+    kalshi_vals = _extract_numeric_thresholds(kalshi_q)
+    if poly_vals and kalshi_vals and not poly_vals & kalshi_vals:
+        return False
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Sports team keyword matching (Pass 0)
+# ---------------------------------------------------------------------------
+
+def _build_sports_lookup() -> tuple[dict[str, set[str]], re.Pattern]:
+    """Build a sports team lookup and extraction regex.
+
+    Maps lowercase team names / cities / abbreviations to a set of canonical
+    city names (lowercase).  Used for deterministic sports candidate matching
+    that bypasses embedding similarity entirely.
+    """
+    from app.services.team_mappings import (
+        NBA_TEAMS, NFL_TEAMS, MLB_TEAMS, NHL_TEAMS,
+        FULL_ABBREVIATIONS,
+    )
+
+    # Definitive set of city names (from FULL_ABBREVIATIONS)
+    known_cities: set[str] = set()
+    for entries in FULL_ABBREVIATIONS.values():
+        for city, _, _ in entries:
+            known_cities.add(city.lower())
+
+    lookup: dict[str, set[str]] = {}  # name -> {canonical cities}
+
+    for teams_dict in [NBA_TEAMS, NFL_TEAMS, MLB_TEAMS, NHL_TEAMS]:
+        for key, val in teams_dict.items():
+            if isinstance(val, str):
+                key_l, val_l = key.lower(), val.lower()
+                if val_l in known_cities:
+                    # key = nickname, val = city
+                    lookup.setdefault(key_l, set()).add(val_l)
+                    lookup.setdefault(val_l, set()).add(val_l)
+                elif key_l in known_cities:
+                    # key = city, val = nickname (reverse mapping)
+                    lookup.setdefault(val_l, set()).add(key_l)
+                    lookup.setdefault(key_l, set()).add(key_l)
+            elif isinstance(val, list):
+                city_l = key.lower()
+                lookup.setdefault(city_l, set()).add(city_l)
+                for nick in val:
+                    lookup.setdefault(nick.lower(), set()).add(city_l)
+
+    # Abbreviations (FULL_ABBREVIATIONS covers all leagues per abbrev)
+    for abbrev, entries in FULL_ABBREVIATIONS.items():
+        abbrev_l = abbrev.lower()
+        for city, _, _ in entries:
+            lookup.setdefault(abbrev_l, set()).add(city.lower())
+
+    # Build regex: longest names first for greedy matching, word-bounded
+    all_names = sorted(lookup.keys(), key=len, reverse=True)
+    escaped = [re.escape(n) for n in all_names]
+    pattern = re.compile(r"\b(?:" + "|".join(escaped) + r")\b", re.IGNORECASE)
+
+    return lookup, pattern
+
+
+_SPORTS_LOOKUP, _SPORTS_PATTERN = _build_sports_lookup()
+
+
+def _extract_cities(text: str) -> set[str]:
+    """Extract canonical city names from text via the sports team lookup."""
+    cities: set[str] = set()
+    for m in _SPORTS_PATTERN.finditer(text):
+        cities.update(_SPORTS_LOOKUP.get(m.group().lower(), set()))
+    return cities
+
+
+def _find_sports_candidates(
+    poly_markets: list, kalshi_markets: list,
+) -> list[dict]:
+    """Find candidate pairs via sports team / city keyword matching.
+
+    Extracts team / city mentions from each market question and matches pairs
+    that reference the same game (>= 2 common canonical cities).
+    Deterministic, zero LLM cost.
+    """
+    poly_cities: dict[str, set[str]] = {}
+    for m in poly_markets:
+        d = _market_to_dict(m)
+        cities = _extract_cities(d.get("question", ""))
+        if len(cities) >= 2:
+            poly_cities[d["id"]] = cities
+
+    kalshi_cities: dict[str, set[str]] = {}
+    for m in kalshi_markets:
+        d = _market_to_dict(m)
+        q = d.get("question", "")
+        cities = _extract_cities(q)
+        if len(cities) >= 2:
+            kalshi_cities[d["id"]] = cities
+        elif len(cities) == 1:
+            logger.info("Sports 1-city kalshi: %s -> %s | q=%s", d["id"], sorted(cities), q[:120])
+
+    candidates: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+
+    for poly_id, p_cities in poly_cities.items():
+        for kalshi_id, k_cities in kalshi_cities.items():
+            common = p_cities & k_cities
+            if len(common) >= 2:
+                pair = (poly_id, kalshi_id)
+                if pair not in seen:
+                    seen.add(pair)
+                    candidates.append({
+                        "poly_id": poly_id,
+                        "kalshi_id": kalshi_id,
+                        "confidence": 0.85,
+                        "reasoning": f"Sports team match: {', '.join(sorted(common))}",
+                    })
+
+    # Diagnostic: log the actual sports markets found on each side
+    if poly_cities or kalshi_cities:
+        poly_samples = [(pid, sorted(c)) for pid, c in list(poly_cities.items())[:5]]
+        kalshi_samples = [(kid, sorted(c)) for kid, c in list(kalshi_cities.items())[:5]]
+        logger.info(
+            "Sports diag — poly samples: %s; kalshi samples: %s",
+            poly_samples, kalshi_samples,
+        )
+
+    logger.info(
+        "Sports keyword pass: %d poly, %d kalshi sports markets -> %d candidates",
+        len(poly_cities), len(kalshi_cities), len(candidates),
+    )
+    return candidates
 
 
 async def _call_groq(prompt: str, system: str = "") -> str | None:
@@ -167,43 +341,33 @@ async def _pass2_confirm(candidate: dict, markets_by_id: dict) -> dict | None:
     if not poly or not kalshi:
         return None
 
-    poly_end = poly.get("end_date", "unknown")
-    kalshi_end = kalshi.get("end_date", "unknown")
-
-    prompt = f"""Determine whether these two prediction markets are asking the EXACT SAME question with the SAME YES/NO orientation AND the SAME resolution deadline:
+    prompt = f"""Do these two prediction markets ask the EXACT SAME question with the SAME YES/NO orientation?
 
 Polymarket:
-  ID: {poly_id}
   Question: {poly.get('question', '')}
   Category: {poly.get('category', '')}
-  End date / Resolution deadline: {poly_end}
 
 Kalshi:
-  ID: {kalshi_id}
   Question: {kalshi.get('question', '')}
   Category: {kalshi.get('category', '')}
-  End date / Resolution deadline: {kalshi_end}
 
-IMPORTANT RULES:
+RULES:
 1. Both contracts must resolve YES under the same conditions and NO under the same conditions.
-2. CRITICAL: Resolution dates/deadlines MUST match. If one market resolves "by Feb 28" and the other "by Mar 31", they are DIFFERENT markets even if the question text is similar. Different deadlines = confirmed: false.
-3. If either end_date is missing or "unknown", and the question text contains a specific date/deadline, use that instead.
+2. Ignore minor wording differences if the underlying question is identical.
 
-Examples of SAME orientation (confirmed=true):
-  - Poly: "Will Team A win?" / Kalshi: "Will Team A win?" (same deadline) → same question, same YES
-  - Poly: "Bitcoin above $100K by March 31?" / Kalshi: "Bitcoin above $100K by March 31?" → same
+Examples — CONFIRMED:
+  - "Will Team A win?" / "Will Team A win?" → same question, same YES
+  - "Bitcoin above $100K by March 31?" / "Bitcoin above $100K by March 31?" → same
 
-Examples that should be REJECTED (confirmed=false):
-  - Poly: "Will Player A win?" / Kalshi: "Will Player B win?" → opposite sides of same event
-  - Poly: "Will X happen?" / Kalshi: "Will X NOT happen?" → inverted framing
-  - Poly: "Will X happen by Feb 28?" / Kalshi: "Will X happen by Mar 31?" → DIFFERENT deadlines
+Examples — REJECTED:
+  - "Will Player A win?" / "Will Player B win?" → opposite sides of same event
+  - "Will X happen?" / "Will X NOT happen?" → inverted framing
+  - "XRP reach $1.80" / "XRP trimmed mean above $1.80" → different resolution criteria
 
 Return JSON only:
 {{"confirmed": true/false, "reasoning": "brief explanation"}}
-- confirmed: true ONLY if both contracts ask the same question AND YES means the same thing on both AND they have the same resolution deadline
-- confirmed: false if they are opposite sides, inverted, different events, OR have different deadlines
 """
-    system = "You are a prediction market analyst. Confirm or reject market matches. Only confirm if both contracts have identical resolution criteria, YES/NO orientation, AND resolution deadline. Return valid JSON only."
+    system = "You are a prediction market analyst. Confirm or reject market matches. Only confirm if both contracts have identical resolution criteria and YES/NO orientation. Return valid JSON only."
 
     response = await _call_groq(prompt, system)
     if not response:
@@ -249,10 +413,12 @@ async def match_markets(
     polymarket_markets: list,
     kalshi_markets: list,
 ) -> list[dict]:
-    """Run two-pass matching on the provided market lists.
+    """Run multi-pass matching on the provided market lists.
 
+    Pass 0: Sports keyword candidates (deterministic, zero LLM calls).
     Pass 1: Embedding cosine similarity (zero LLM calls).
-    Pass 1.5: Date pre-filter — skip pairs with mismatched end_dates (zero LLM calls).
+    Pass 1.5: Date pre-filter — skip pairs with mismatched end_dates.
+    Pass 1.6: Numeric threshold pre-filter — skip mismatched dollar/unit values.
     Pass 2: Groq LLM confirmation (capped at _MAX_CONFIRMATIONS_PER_CYCLE).
 
     Args:
@@ -284,13 +450,31 @@ async def match_markets(
         d = _market_to_dict(m)
         all_markets[d["id"]] = d
 
+    # Pass 0: Sports keyword candidates (deterministic, zero LLM calls)
+    sports_candidates = _find_sports_candidates(polymarket_markets, kalshi_markets)
+
     # Pass 1: Candidate discovery via embeddings (zero LLM calls)
-    candidates = await find_embedding_candidates(db)
+    embedding_candidates = await find_embedding_candidates(db)
+    logger.info("Pass 1: %d embedding candidates", len(embedding_candidates))
+
+    # Merge sports + embedding candidates, dedup by (poly_id, kalshi_id)
+    seen_pairs = {(c["poly_id"], c["kalshi_id"]) for c in embedding_candidates}
+    candidates = list(embedding_candidates)
+    sports_added = 0
+    for sc in sports_candidates:
+        if (sc["poly_id"], sc["kalshi_id"]) not in seen_pairs:
+            candidates.append(sc)
+            seen_pairs.add((sc["poly_id"], sc["kalshi_id"]))
+            sports_added += 1
+
     if not candidates:
-        logger.info("Pass 1: no embedding candidates — embeddings may not be ready yet")
+        logger.info("No candidates from embeddings or sports matching")
         return []
 
-    logger.info("Pass 1 complete: %d embedding candidates", len(candidates))
+    logger.info(
+        "Candidate merge: %d embedding + %d sports-only -> %d total",
+        len(embedding_candidates), sports_added, len(candidates),
+    )
 
     # Pass 2: Confirmation (skip cached + rejected + date-mismatched,
     # cap LLM calls at _MAX_CONFIRMATIONS_PER_CYCLE)
@@ -298,6 +482,7 @@ async def match_markets(
     cached = 0
     rejected_skipped = 0
     date_skipped = 0
+    threshold_skipped = 0
     errors = 0
     llm_calls = 0
 
@@ -331,6 +516,16 @@ async def match_markets(
             _rejected_keys.add(key)
             continue
 
+        # Pass 1.6: Numeric threshold pre-filter — skip pairs where both
+        # questions contain dollar amounts but they don't overlap.
+        # Kills crypto price-bin noise (ETH $2,100 vs ETH $2,750) for free.
+        if not _thresholds_compatible(
+            poly_market.get("question", ""), kalshi_market.get("question", "")
+        ):
+            threshold_skipped += 1
+            _rejected_keys.add(key)
+            continue
+
         try:
             result = await _pass2_confirm(cand, all_markets)
             llm_calls += 1
@@ -345,8 +540,9 @@ async def match_markets(
 
     logger.info(
         "Matching complete -- candidates: %d, llm_calls: %d, confirmed: %d, "
-        "cached_skipped: %d, rejected_skipped: %d, date_skipped: %d, errors: %d",
+        "cached_skipped: %d, rejected_skipped: %d, date_skipped: %d, "
+        "threshold_skipped: %d, errors: %d",
         len(candidates), llm_calls, len(confirmed), cached, rejected_skipped,
-        date_skipped, errors,
+        date_skipped, threshold_skipped, errors,
     )
     return confirmed

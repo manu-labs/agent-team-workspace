@@ -277,17 +277,34 @@ async def _run_cycle() -> None:
         # Upsert confirmed matches into the matches table
         for m in confirmed:
             sd = calculate_spread(m["polymarket_yes"], m["kalshi_yes"])
+            # Look up volumes from the markets table
+            poly_vol = 0
+            kalshi_vol = 0
+            for mkt in poly_markets:
+                d = mkt if isinstance(mkt, dict) else {"id": mkt.id, "volume": getattr(mkt, "volume", 0)}
+                if d["id"] == m["polymarket_id"]:
+                    poly_vol = d.get("volume", 0) or 0
+                    break
+            for mkt in kalshi_markets:
+                d = mkt if isinstance(mkt, dict) else {"id": mkt.id, "volume": getattr(mkt, "volume", 0)}
+                if d["id"] == m["kalshi_id"]:
+                    kalshi_vol = d.get("volume", 0) or 0
+                    break
             await db.execute(
                 """INSERT INTO matches (polymarket_id, kalshi_id, confidence, spread,
                                        fee_adjusted_spread, polymarket_yes, kalshi_yes,
+                                       polymarket_volume, kalshi_volume,
                                        question, last_updated)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(polymarket_id, kalshi_id) DO UPDATE SET
                        confidence = excluded.confidence,
+                       polymarket_volume = excluded.polymarket_volume,
+                       kalshi_volume = excluded.kalshi_volume,
                        last_updated = excluded.last_updated""",
                 (m["polymarket_id"], m["kalshi_id"], m["confidence"],
                  sd["raw_spread"], sd["fee_adjusted_spread"],
-                 m["polymarket_yes"], m["kalshi_yes"], m["question"],
+                 m["polymarket_yes"], m["kalshi_yes"],
+                 poly_vol, kalshi_vol, m["question"],
                  now.isoformat()),
             )
 

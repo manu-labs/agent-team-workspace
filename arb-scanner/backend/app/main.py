@@ -34,6 +34,7 @@ app = FastAPI(
     description="Prediction market arbitrage scanner - Polymarket vs Kalshi",
     version="0.1.0",
     lifespan=lifespan,
+    redirect_slashes=False,
 )
 
 origins = json.loads(settings.CORS_ORIGINS)

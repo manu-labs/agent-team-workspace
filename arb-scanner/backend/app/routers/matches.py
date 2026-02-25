@@ -65,6 +65,7 @@ def _serialize_snapshot(row: dict) -> dict:
     }
 
 
+@router.get("")
 @router.get("/")
 async def list_matches(
     min_spread: float = Query(0, ge=0, description="Minimum fee-adjusted spread"),

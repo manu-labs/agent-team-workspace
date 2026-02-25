@@ -5,6 +5,7 @@ from app.database import get_db
 router = APIRouter(prefix="/markets", tags=["markets"])
 
 
+@router.get("")
 @router.get("/")
 async def list_markets(
     platform: str | None = Query(None, description="Filter by platform"),

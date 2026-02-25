@@ -30,6 +30,38 @@ _MULTI_HYPHEN_RE = re.compile(r"-+")
 _WHITESPACE_RE = re.compile(r"\s+")
 
 
+_TICKER_DATE_RE = re.compile(r"(\d{2})([A-Z]{3})(\d{2})")
+_MONTH_MAP = {
+    "JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,
+    "JUL": 7, "AUG": 8, "SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12,
+}
+
+
+def _extract_ticker_date(event_ticker: str) -> datetime | None:
+    """Extract event date from Kalshi event ticker.
+
+    Kalshi encodes the actual event date in the ticker after the first hyphen.
+    E.g. "KXNBAGAME-26FEB25OKCDET" → Feb 25, 2026 (end of day UTC).
+    """
+    if not event_ticker or "-" not in event_ticker:
+        return None
+    # Search the portion after the first hyphen
+    suffix = event_ticker.split("-", 1)[1]
+    m = _TICKER_DATE_RE.match(suffix)
+    if not m:
+        return None
+    day_str, mon_str, year_str = m.groups()
+    month = _MONTH_MAP.get(mon_str)
+    if not month:
+        return None
+    try:
+        year = 2000 + int(year_str)
+        day = int(day_str)
+        return datetime(year, month, day, 23, 59, 59, tzinfo=timezone.utc)
+    except (ValueError, OverflowError):
+        return None
+
+
 def _slugify(text: str) -> str:
     """Convert text to a URL slug matching Kalshi's frontend format.
 
@@ -116,6 +148,29 @@ def _normalize(raw: dict, series_data: dict[str, dict]) -> NormalizedMarket | No
         if not title:
             return None
 
+        # Multi-outcome events share a generic title (e.g. "Best AI in Feb 2026?")
+        # with the specific outcome in subtitle (e.g. "Claude:: Anthropic").
+        # Append ALL non-trivial sub-titles so the question captures both sides
+        # (critical for sports: "Winner?" needs both team names for matching).
+        subtitle = (raw.get("subtitle") or "").strip()
+        yes_sub = (raw.get("yes_sub_title") or "").strip()
+        no_sub = (raw.get("no_sub_title") or "").strip()
+
+        extras: list[str] = []
+        for val in [subtitle, yes_sub, no_sub]:
+            if val and val.lower() not in ("yes", "no") and val not in extras:
+                extras.append(val)
+        if extras:
+            title = f"{title} — {' / '.join(extras)}"
+
+        # Diagnostic: log raw fields for sports markets so we can see what's available
+        event_ticker = (raw.get("event_ticker") or "").strip()
+        if "GAME" in event_ticker.upper():
+            logger.info(
+                "Kalshi sports raw: ticker=%s event=%s title=%r sub=%r yes_sub=%r no_sub=%r -> final=%r",
+                ticker, event_ticker, raw.get("title"), subtitle, yes_sub, no_sub, title,
+            )
+
         # Kalshi prices are in cents (0-100) — normalize to 0.0-1.0
         # Use last_price (what Kalshi shows on their site) rather than yes_ask,
         # which is the ask side of the order book and wildly inflated in illiquid markets.
@@ -151,20 +206,30 @@ def _normalize(raw: dict, series_data: dict[str, dict]) -> NormalizedMarket | No
         # series_ticker directly — it's on the event object).  The series_ticker
         # is always the first segment of the event_ticker before the first hyphen.
         # E.g. "KXDOTA2GAME-26FEB24LIQUIDAUR" → "KXDOTA2GAME"
-        event_ticker = (raw.get("event_ticker") or "").strip()
         series_ticker = event_ticker.split("-")[0] if event_ticker else ""
         series_info = series_data.get(series_ticker, {})
         category = series_info.get("category", "")
         series_title = series_info.get("title", "")
 
-        # End date
-        end_date = None
-        close_raw = raw.get("expiration_time") or raw.get("close_time")
-        if close_raw:
-            try:
-                end_date = datetime.fromisoformat(close_raw.replace("Z", "+00:00"))
-            except (ValueError, AttributeError):
-                pass
+        # End date — prefer ticker-encoded event date (actual game/event day),
+        # then expected_expiration_time, then close_time (settlement deadline,
+        # often ~15 days after the event for sports markets).
+        end_date = _extract_ticker_date(event_ticker)
+        if end_date is None:
+            close_raw = raw.get("expected_expiration_time") or raw.get("close_time")
+            if close_raw:
+                try:
+                    end_date = datetime.fromisoformat(close_raw.replace("Z", "+00:00"))
+                except (ValueError, AttributeError):
+                    pass
+
+        # If the series title adds context not already in the market title,
+        # prepend it.  Critical for multi-outcome events (sports game winner,
+        # crypto price bins) where the individual market title is generic
+        # ("Winner?") and the series title has the event context
+        # ("Oklahoma City Thunder at Detroit Pistons").
+        if series_title and series_title.lower() not in title.lower():
+            title = f"{series_title}: {title}"
 
         # Build Kalshi frontend URL
         # Format: /markets/{series_ticker}/{slug}/{event_ticker}
