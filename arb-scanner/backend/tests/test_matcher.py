@@ -23,7 +23,6 @@ def make_market(**kwargs):
         "url": "https://polymarket.com/event/btc",
         "end_date": datetime(2026, 3, 31, tzinfo=timezone.utc),
         "last_updated": datetime(2026, 1, 1, tzinfo=timezone.utc),
-        "embed_text": "",
     }
     defaults.update(kwargs)
     return NormalizedMarket(**defaults)

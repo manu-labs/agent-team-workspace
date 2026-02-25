@@ -33,7 +33,6 @@ async def init_db():
             url TEXT DEFAULT '',
             raw_data TEXT DEFAULT '{}',
             last_updated TEXT NOT NULL,
-            embed_text TEXT DEFAULT '',
             clob_token_ids TEXT DEFAULT ''
         );
 
@@ -82,7 +81,6 @@ async def init_db():
 
     # Migration: add columns to existing databases that predate them
     for migration in [
-        "ALTER TABLE markets ADD COLUMN embed_text TEXT DEFAULT ''",
         "ALTER TABLE markets ADD COLUMN clob_token_ids TEXT DEFAULT ''",
     ]:
         try:

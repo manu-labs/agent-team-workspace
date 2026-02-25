@@ -25,7 +25,6 @@ async def in_memory_db():
                 url TEXT DEFAULT '',
                 raw_data TEXT DEFAULT '{}',
                 last_updated TEXT NOT NULL,
-                embed_text TEXT DEFAULT '',
                 clob_token_ids TEXT DEFAULT ''
             );
 

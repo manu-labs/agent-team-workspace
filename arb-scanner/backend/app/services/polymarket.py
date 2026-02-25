@@ -131,17 +131,6 @@ def _normalize(raw: dict) -> NormalizedMarket | None:
         slug = event_slug or raw.get("slug") or ""
         url = f"https://polymarket.com/event/{slug}" if slug else ""
 
-        # Build enriched embedding text — includes groupItemTitle to distinguish
-        # game-level sub-markets (e.g. "Game 1 Winner") from series-level
-        # markets ("Match Winner") in esports events.
-        description = ((raw.get("description") or "")[:300]).strip()
-        parts = [question]
-        if group_title:
-            parts.append(f"Market type: {group_title}")
-        if description:
-            parts.append(description)
-        embed_text = ". ".join(parts)
-
         return NormalizedMarket(
             id=f"{_PLATFORM}:{market_id}",
             platform=_PLATFORM,
@@ -152,7 +141,6 @@ def _normalize(raw: dict) -> NormalizedMarket | None:
             volume=volume,
             end_date=end_date,
             url=url,
-            embed_text=embed_text,
             clob_token_ids=clob_token_id,
             raw_data=raw,
             last_updated=datetime.now(timezone.utc),
@@ -175,6 +163,7 @@ async def _fetch_page(
         "archived": "false",
         "end_date_min": end_date_min,
         "end_date_max": end_date_max,
+        "volume_num_min": settings.MIN_MATCH_VOLUME,
         "offset": offset,
         "limit": _PAGE_SIZE,
     }
@@ -272,8 +261,8 @@ async def ingest_polymarket() -> dict:
                 """
                 INSERT INTO markets (id, platform, question, category, yes_price, no_price,
                                      volume, end_date, url, raw_data, last_updated,
-                                     embed_text, clob_token_ids)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                     clob_token_ids)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     question       = excluded.question,
                     category       = excluded.category,
@@ -284,7 +273,6 @@ async def ingest_polymarket() -> dict:
                     url            = excluded.url,
                     raw_data       = excluded.raw_data,
                     last_updated   = excluded.last_updated,
-                    embed_text     = excluded.embed_text,
                     clob_token_ids = excluded.clob_token_ids
                 """,
                 (
@@ -292,7 +280,7 @@ async def ingest_polymarket() -> dict:
                     m.yes_price, m.no_price, m.volume,
                     m.end_date.isoformat() if m.end_date else None,
                     m.url, '{}', m.last_updated.isoformat(),
-                    m.embed_text, m.clob_token_ids,
+                    m.clob_token_ids,
                 ),
             )
             upserted += 1

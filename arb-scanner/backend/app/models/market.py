@@ -13,7 +13,6 @@ class NormalizedMarket(BaseModel):
     volume: float = 0
     end_date: datetime | None = None
     url: str = ""
-    embed_text: str = ""
     clob_token_ids: str = ""
     raw_data: dict = {}
     last_updated: datetime

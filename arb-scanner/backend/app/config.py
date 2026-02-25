@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = '["*"]'
     WS_RECONNECT_MAX_SECONDS: int = 60
 
-    model_config = {"env_file": ".env"}
+    model_config = {"env_file": ".env", "extra": "ignore"}
 
 
 settings = Settings()

@@ -34,7 +34,7 @@ _MAX_CONFIRMATIONS_PER_CYCLE = 200
 # to proceed to LLM confirmation. Pairs with dates further apart are
 # skipped instantly — no LLM call needed.
 # 24 hours covers timezone differences and same-day resolution windows.
-_DATE_TOLERANCE_SECONDS = 86400  # 24 hours
+_DATE_TOLERANCE_SECONDS = 3600  # 1 hour
 
 # In-memory rejection cache — tracks pairs that Groq has already rejected.
 # Prevents re-evaluating the same rejected pairs every discovery cycle,
