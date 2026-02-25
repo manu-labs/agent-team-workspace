@@ -3,7 +3,8 @@
 Uses httpx to call Groq API directly (the groq library has connection
 issues in Railway network -- same lesson from Auto-RSVP).
 
-Pass 0: Sports keyword candidates -- team name/city lookup table (zero LLM calls).
+Pass 0: Deterministic slug matching -- exact canonical key from slug/ticker (zero LLM calls).
+Pass 0b: Sports keyword candidates -- team name/city lookup table (zero LLM calls).
 Pass 1: Candidate discovery -- cosine similarity via OpenAI embeddings (zero LLM calls).
 Pass 1.5: Date pre-filter -- skip pairs with mismatched end_dates (zero LLM calls).
 Pass 1.6: Numeric threshold pre-filter -- skip mismatched dollar/unit values.
@@ -24,6 +25,7 @@ import httpx
 from app.config import settings
 from app.database import get_db
 from app.services.embeddings import find_embedding_candidates
+from app.services.sports_matcher import match_sports_deterministic
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +131,7 @@ def _thresholds_compatible(poly_q: str, kalshi_q: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Sports team keyword matching (Pass 0)
+# Sports team keyword matching (Pass 0b)
 # ---------------------------------------------------------------------------
 
 def _build_sports_lookup() -> tuple[dict[str, set[str]], re.Pattern]:
@@ -307,6 +309,9 @@ def _market_to_dict(market) -> dict:
         "volume": getattr(market, "volume", 0),
         "url": getattr(market, "url", ""),
         "end_date": getattr(market, "end_date", ""),
+        "event_slug": getattr(market, "event_slug", ""),
+        "event_ticker": getattr(market, "event_ticker", ""),
+        "sports_market_type": getattr(market, "sports_market_type", ""),
     }
 
 
@@ -403,11 +408,13 @@ async def match_markets(
 ) -> list[dict]:
     """Run multi-pass matching on the provided market lists.
 
-    Pass 0: Sports keyword candidates (deterministic, zero LLM calls).
-    Pass 1: Embedding cosine similarity (zero LLM calls).
+    Pass 0:  Deterministic slug matching — exact canonical key match (confidence=1.0,
+             bypass LLM entirely).
+    Pass 0b: Sports keyword candidates (confidence=0.85, LLM confirmed).
+    Pass 1:  Embedding cosine similarity (zero LLM calls).
     Pass 1.5: Date pre-filter — skip pairs with mismatched end_dates.
     Pass 1.6: Numeric threshold pre-filter — skip mismatched dollar/unit values.
-    Pass 2: Groq LLM confirmation (capped at _MAX_CONFIRMATIONS_PER_CYCLE).
+    Pass 2:  Groq LLM confirmation (capped at _MAX_CONFIRMATIONS_PER_CYCLE).
 
     Args:
         polymarket_markets: List of NormalizedMarket or dicts from Polymarket
@@ -438,30 +445,64 @@ async def match_markets(
         d = _market_to_dict(m)
         all_markets[d["id"]] = d
 
-    # Pass 0: Sports keyword candidates (deterministic, zero LLM calls)
-    sports_candidates = _find_sports_candidates(polymarket_markets, kalshi_markets)
+    # Pass 0: Deterministic slug matching (confidence=1.0, bypass LLM entirely)
+    # These are exact matches — no LLM confirmation needed. Add directly to results
+    # and exclude from all subsequent candidate passes to avoid double-matching.
+    det_raw = match_sports_deterministic(polymarket_markets, kalshi_markets)
+    det_confirmed: list[dict] = []
+    deterministic_pairs: set[tuple[str, str]] = set()
+
+    for d in det_raw:
+        poly_id = d["poly_id"]
+        kalshi_id = d["kalshi_id"]
+        key = _cache_key(poly_id, kalshi_id)
+
+        if key in cached_keys:
+            deterministic_pairs.add((poly_id, kalshi_id))
+            continue
+
+        poly_m = all_markets.get(poly_id, {})
+        kalshi_m = all_markets.get(kalshi_id, {})
+        det_confirmed.append({
+            "polymarket_id": poly_id,
+            "kalshi_id": kalshi_id,
+            "confidence": 1.0,
+            "question": poly_m.get("question", ""),
+            "polymarket_yes": poly_m.get("yes_price", 0),
+            "kalshi_yes": kalshi_m.get("yes_price", 0),
+        })
+        deterministic_pairs.add((poly_id, kalshi_id))
+        cached_keys.add(key)  # prevent double-matching in subsequent passes
+
+    logger.info("Pass 0: %d deterministic slug matches (%d new)", len(det_raw), len(det_confirmed))
+
+    # Pass 0b: Sports keyword candidates (confidence=0.85)
+    # Filter out pairs already matched deterministically
+    kw_candidates = _find_sports_candidates(polymarket_markets, kalshi_markets)
+    kw_candidates = [
+        c for c in kw_candidates
+        if (c["poly_id"], c["kalshi_id"]) not in deterministic_pairs
+    ]
 
     # Pass 1: Candidate discovery via embeddings (zero LLM calls)
     embedding_candidates = await find_embedding_candidates(db)
     logger.info("Pass 1: %d embedding candidates", len(embedding_candidates))
 
-    # Merge sports + embedding candidates, dedup by (poly_id, kalshi_id)
+    # Merge keyword + embedding candidates, dedup by (poly_id, kalshi_id)
+    # Skip pairs already matched deterministically
     seen_pairs = {(c["poly_id"], c["kalshi_id"]) for c in embedding_candidates}
+    seen_pairs |= deterministic_pairs
     candidates = list(embedding_candidates)
-    sports_added = 0
-    for sc in sports_candidates:
-        if (sc["poly_id"], sc["kalshi_id"]) not in seen_pairs:
-            candidates.append(sc)
-            seen_pairs.add((sc["poly_id"], sc["kalshi_id"]))
-            sports_added += 1
-
-    if not candidates:
-        logger.info("No candidates from embeddings or sports matching")
-        return []
+    kw_added = 0
+    for kc in kw_candidates:
+        if (kc["poly_id"], kc["kalshi_id"]) not in seen_pairs:
+            candidates.append(kc)
+            seen_pairs.add((kc["poly_id"], kc["kalshi_id"]))
+            kw_added += 1
 
     logger.info(
-        "Candidate merge: %d embedding + %d sports-only -> %d total",
-        len(embedding_candidates), sports_added, len(candidates),
+        "Candidate merge: %d embedding + %d keyword-only -> %d total (excl. %d deterministic)",
+        len(embedding_candidates), kw_added, len(candidates), len(deterministic_pairs),
     )
 
     # Pass 2: Confirmation (skip cached + rejected + date-mismatched,
@@ -495,8 +536,7 @@ async def match_markets(
             continue
 
         # Pass 1.5: Date pre-filter — skip pairs with clearly mismatched
-        # end_dates without burning an LLM call. Eliminates ~90% of crypto
-        # price bin false candidates (e.g. BTC Feb 26 17:00 vs Feb 27 22:00).
+        # end_dates without burning an LLM call.
         poly_market = all_markets.get(poly_id, {})
         kalshi_market = all_markets.get(kalshi_id, {})
         if not _dates_compatible(poly_market.get("end_date"), kalshi_market.get("end_date")):
@@ -504,9 +544,7 @@ async def match_markets(
             _rejected_keys.add(key)
             continue
 
-        # Pass 1.6: Numeric threshold pre-filter — skip pairs where both
-        # questions contain dollar amounts but they don't overlap.
-        # Kills crypto price-bin noise (ETH $2,100 vs ETH $2,750) for free.
+        # Pass 1.6: Numeric threshold pre-filter.
         if not _thresholds_compatible(
             poly_market.get("question", ""), kalshi_market.get("question", "")
         ):
@@ -520,17 +558,16 @@ async def match_markets(
             if result:
                 confirmed.append(result)
             else:
-                # Add to rejection cache so we don't re-evaluate next cycle
                 _rejected_keys.add(key)
         except Exception as exc:
             logger.error("Error confirming %s <-> %s: %s", poly_id, kalshi_id, exc)
             errors += 1
 
     logger.info(
-        "Matching complete -- candidates: %d, llm_calls: %d, confirmed: %d, "
+        "Matching complete -- det: %d, llm_candidates: %d, llm_calls: %d, confirmed: %d, "
         "cached_skipped: %d, rejected_skipped: %d, date_skipped: %d, "
         "threshold_skipped: %d, errors: %d",
-        len(candidates), llm_calls, len(confirmed), cached, rejected_skipped,
-        date_skipped, threshold_skipped, errors,
+        len(det_confirmed), len(candidates), llm_calls, len(confirmed),
+        cached, rejected_skipped, date_skipped, threshold_skipped, errors,
     )
-    return confirmed
+    return det_confirmed + confirmed
