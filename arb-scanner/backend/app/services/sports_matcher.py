@@ -22,8 +22,9 @@ Matching approach:
      is the raw unsplit concatenation of both team codes.
   3. Match by checking if teams_str == team1+team2 OR team2+team1
      (after TEAM_ALIASES resolution).
-  4. For each matched game, run check_sports_orientation() to select the
-     aligned Kalshi market (YES side matches team1) over the inverted one.
+  4. For each matched game, run check_sports_orientation() to select only
+     the ALIGNED Kalshi market (YES side matches team1). Inverted markets
+     are skipped — no match created.
   5. Canonical key {league}:{team_a}-{team_b}:{YYYY-MM-DD} is used only
      for logging/reasoning (teams sorted for readability).
 """
@@ -273,8 +274,8 @@ def check_sports_orientation(
         poly_team2: Poly slug team2 (NO side), e.g. "tow"
 
     Returns:
-        "aligned"  — Kalshi YES resolves for team1 (same as Poly YES). No price swap needed.
-        "inverted" — Kalshi YES resolves for team2 (opposite of Poly YES). Swap prices.
+        "aligned"  — Kalshi YES resolves for team1 (same as Poly YES). Keep this match.
+        "inverted" — Kalshi YES resolves for team2 (opposite of Poly YES). Reject this match.
         "unknown"  — Cannot determine (non-sports, parse failure, ambiguous suffix).
     """
     if not kalshi_market_id or not kalshi_market_id.startswith("kalshi:"):
@@ -304,7 +305,7 @@ def check_sports_orientation(
 
 
 # ---------------------------------------------------------------------------
-# Deterministic matcher (Part 2 — updated to prefer aligned markets)
+# Deterministic matcher (Pass 0)
 # ---------------------------------------------------------------------------
 
 def match_sports_deterministic(
@@ -323,18 +324,19 @@ def match_sports_deterministic(
       2. For each Polymarket moneyline market, resolve team aliases and check
          both orderings (team1+team2, team2+team1) against the Kalshi lookup.
       3. Run check_sports_orientation() on each candidate Kalshi market.
-         Prefer ALIGNED (no price swap); fall back to INVERTED if no aligned
-         market exists. UNKNOWN falls back to first candidate.
+         ALIGNED markets are kept. UNKNOWN markets are kept as fallback.
+         INVERTED-only games are skipped entirely — no match created.
 
     Zero embeddings, zero LLM calls. Returns confidence=1.0 for all matches.
-    Inverted matches include inverted=True so the caller can swap prices.
+    Inverted matches are rejected (not returned) so no price swapping is needed.
 
     Args:
         poly_markets: List of NormalizedMarket or dicts from Polymarket
         kalshi_markets: List of NormalizedMarket or dicts from Kalshi
 
     Returns:
-        List of {poly_id, kalshi_id, confidence, reasoning, inverted} dicts
+        List of {poly_id, kalshi_id, confidence, reasoning} dicts.
+        Only ALIGNED or UNKNOWN markets are returned — INVERTED are skipped.
     """
     # Build Kalshi lookup: (league, date_str, teams_str) → [kalshi_id, ...]
     # Store ALL market IDs per game (two per game: one per team)
@@ -394,39 +396,36 @@ def match_sports_deterministic(
         if not kalshi_ids:
             continue
 
-        # Select best Kalshi market via orientation check:
-        # Prefer ALIGNED (YES sides match). Fall back to INVERTED if no aligned.
-        # UNKNOWN: treat as aligned (can't determine, pass through unchanged).
+        # Select best Kalshi market via orientation check.
+        # ALIGNED: YES sides match — use this market.
+        # UNKNOWN: can't determine orientation — pass through as fallback.
+        # INVERTED: YES sides are opposite — skip this game entirely (no match created).
         best_id: str | None = None
-        inverted = False
-        inverted_candidate: str | None = None
+        unknown_candidate: str | None = None
 
         for kid in kalshi_ids:
             orientation = check_sports_orientation(kid, team1, team2)
             if orientation == "aligned":
                 best_id = kid
-                inverted = False
                 break  # prefer aligned, stop searching
-            elif orientation == "inverted" and inverted_candidate is None:
-                inverted_candidate = kid
+            elif orientation == "unknown" and unknown_candidate is None:
+                unknown_candidate = kid  # pass through — non-sports or ambiguous
 
         if best_id is None:
-            # No aligned market found — use inverted if available, else first
-            if inverted_candidate:
-                best_id = inverted_candidate
-                inverted = True
+            if unknown_candidate:
+                best_id = unknown_candidate
             else:
-                best_id = kalshi_ids[0]
-                inverted = False
+                # All markets are inverted — skip this game entirely
+                key_str = canonical_sports_key(league, team1, team2, date_str)
+                logger.info("Skipping inverted match: %s", key_str)
+                continue
 
         key_str = canonical_sports_key(league, team1, team2, date_str)
-        inv_note = " [inverted — prices swapped]" if inverted else ""
         matched.append({
             "poly_id": mid,
             "kalshi_id": best_id,
             "confidence": 1.0,
-            "reasoning": f"Deterministic slug match: {key_str}{inv_note}",
-            "inverted": inverted,
+            "reasoning": f"Deterministic slug match: {key_str}",
         })
 
     logger.info(
