@@ -163,13 +163,7 @@ def _normalize(raw: dict, series_data: dict[str, dict]) -> NormalizedMarket | No
         if extras:
             title = f"{title} — {' / '.join(extras)}"
 
-        # Diagnostic: log raw fields for sports markets so we can see what's available
         event_ticker = (raw.get("event_ticker") or "").strip()
-        if "GAME" in event_ticker.upper():
-            logger.info(
-                "Kalshi sports raw: ticker=%s event=%s title=%r sub=%r yes_sub=%r no_sub=%r -> final=%r",
-                ticker, event_ticker, raw.get("title"), subtitle, yes_sub, no_sub, title,
-            )
 
         # Kalshi prices are in cents (0-100) — normalize to 0.0-1.0
         # Use last_price (what Kalshi shows on their site) rather than yes_ask,

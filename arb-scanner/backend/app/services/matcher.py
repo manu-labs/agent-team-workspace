@@ -218,9 +218,6 @@ def _find_sports_candidates(
         cities = _extract_cities(q)
         if len(cities) >= 2:
             kalshi_cities[d["id"]] = cities
-        elif len(cities) == 1:
-            logger.info("Sports 1-city kalshi: %s -> %s | q=%s", d["id"], sorted(cities), q[:120])
-
     candidates: list[dict] = []
     seen: set[tuple[str, str]] = set()
 
@@ -237,15 +234,6 @@ def _find_sports_candidates(
                         "confidence": 0.85,
                         "reasoning": f"Sports team match: {', '.join(sorted(common))}",
                     })
-
-    # Diagnostic: log the actual sports markets found on each side
-    if poly_cities or kalshi_cities:
-        poly_samples = [(pid, sorted(c)) for pid, c in list(poly_cities.items())[:5]]
-        kalshi_samples = [(kid, sorted(c)) for kid, c in list(kalshi_cities.items())[:5]]
-        logger.info(
-            "Sports diag — poly samples: %s; kalshi samples: %s",
-            poly_samples, kalshi_samples,
-        )
 
     logger.info(
         "Sports keyword pass: %d poly, %d kalshi sports markets -> %d candidates",

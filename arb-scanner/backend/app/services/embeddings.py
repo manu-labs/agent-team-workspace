@@ -246,21 +246,6 @@ async def find_embedding_candidates(db, threshold: float = _SIMILARITY_THRESHOLD
     # Sort by confidence descending
     candidates.sort(key=lambda x: x["confidence"], reverse=True)
 
-    # Log near-miss pairs just below threshold for diagnostics
-    near_miss_indices = np.argwhere(
-        (similarity >= threshold - 0.15) & (similarity < threshold)
-    )
-    if len(near_miss_indices) > 0:
-        near_misses = []
-        for i, j in near_miss_indices[:10]:  # cap at 10
-            near_misses.append(
-                f"{poly_ids[i]} <-> {kalshi_ids[j]} sim={similarity[i, j]:.4f}"
-            )
-        logger.info(
-            "Embedding near-misses (%.2f-%.2f): %s",
-            threshold - 0.15, threshold, "; ".join(near_misses),
-        )
-
     logger.info(
         "find_embedding_candidates: %d candidates from %d poly x %d kalshi markets (threshold=%.2f)",
         len(candidates), len(poly_ids), len(kalshi_ids), threshold,
