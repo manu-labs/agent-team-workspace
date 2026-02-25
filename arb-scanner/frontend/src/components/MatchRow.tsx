@@ -15,16 +15,21 @@ function formatVolume(n: number): string {
   return "$" + n.toFixed(0);
 }
 
-function formatRelativeTime(iso: string): string {
+function formatRelativeTime(iso: string): { text: string; expired: boolean } {
+  if (iso === "") return { text: "\u2014", expired: false };
   const diff = new Date(iso).getTime() - Date.now();
+  const expired = diff < 0;
   const abs = Math.abs(diff);
   const mins = Math.floor(abs / 60_000);
   const hours = Math.floor(abs / 3_600_000);
   const days = Math.floor(abs / 86_400_000);
-  if (days >= 1) return days + "d";
-  if (hours >= 1) return hours + "h";
-  if (mins >= 1) return mins + "m";
-  return "now";
+  let label: string;
+  if (days >= 1) label = days + "d";
+  else if (hours >= 1) label = hours + "h";
+  else if (mins >= 1) label = mins + "m";
+  else label = "now";
+  if (expired && label !== "now") label += " ago";
+  return { text: label, expired };
 }
 
 // ── Liquidity indicator ───────────────────────────────────────────────────────
@@ -37,10 +42,10 @@ function LiquidityDot({ volume }: { volume: number }) {
     title = "High liquidity (>$100K)";
   } else if (volume >= 10_000) {
     colorClass = "bg-yellow-500/80";
-    title = "Medium liquidity ($10K–$100K)";
+    title = "Medium liquidity ($10K\u2013$100K)";
   } else if (volume >= 1_000) {
     colorClass = "bg-zinc-400";
-    title = "Low liquidity ($1K–$10K)";
+    title = "Low liquidity ($1K\u2013$10K)";
   } else {
     colorClass = "bg-zinc-700";
     title = "Very low liquidity (<$1K)";
@@ -91,6 +96,8 @@ export default function MatchRow({ match }: MatchRowProps) {
 
   const polyFlash = useFlashOnChange(match.poly_yes);
   const kalshiFlash = useFlashOnChange(match.kalshi_yes);
+
+  const endInfo = formatRelativeTime(match.end_date);
 
   function handleRowClick() {
     navigate(`/matches/${match.id}`);
@@ -147,8 +154,11 @@ export default function MatchRow({ match }: MatchRowProps) {
         </td>
 
         {/* Ends */}
-        <td className="data-cell whitespace-nowrap px-3 py-2.5 text-zinc-500">
-          {formatRelativeTime(match.end_date)}
+        <td
+          className={`data-cell whitespace-nowrap px-3 py-2.5 ${endInfo.expired ? "text-zinc-700" : "text-zinc-500"}`}
+          title={endInfo.expired ? "Market has expired" : match.end_date}
+        >
+          {endInfo.text}
         </td>
 
         {/* Platform links */}
@@ -207,7 +217,9 @@ export default function MatchRow({ match }: MatchRowProps) {
                 <LiquidityDot volume={match.volume} />
                 {formatVolume(match.volume)}
               </span>
-              <span>Ends {formatRelativeTime(match.end_date)}</span>
+              <span className={endInfo.expired ? "text-zinc-700" : ""}>
+                {endInfo.expired ? "Ended " : "Ends "}{endInfo.text}
+              </span>
             </div>
 
             {/* Platform links */}
