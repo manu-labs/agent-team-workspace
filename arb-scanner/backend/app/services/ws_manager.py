@@ -218,18 +218,22 @@ async def _update_market_and_matches(market_id: str, yes_price: float, no_price:
             now = datetime.now(timezone.utc).isoformat()
             now_ts = time.monotonic()
 
-            # 1. Update market prices only — leave volume untouched
+            # 1. Update market raw prices only — leave volume untouched
             await db.execute(
                 "UPDATE markets SET yes_price = ?, no_price = ?, last_updated = ? WHERE id = ?",
                 (yes_price, no_price, now, market_id),
             )
 
-            # 2. Find all matches involving this market and recalculate spreads
+            # 2. Find all matches involving this market and recalculate spreads.
+            # Include kalshi_inverted and km.no_price so we can apply the orientation
+            # correction: inverted matches use Kalshi NO price as the effective YES.
             cursor = await db.execute(
                 """SELECT
                     m.id,
+                    m.kalshi_inverted,
                     pm.yes_price AS poly_yes,
-                    km.yes_price AS kalshi_yes,
+                    km.yes_price AS kalshi_yes_raw,
+                    km.no_price  AS kalshi_no_raw,
                     pm.volume    AS poly_vol,
                     km.volume    AS kalshi_vol
                    FROM matches m
@@ -242,11 +246,20 @@ async def _update_market_and_matches(market_id: str, yes_price: float, no_price:
 
             for match in affected:
                 poly_yes = match["poly_yes"] or 0.0
-                kalshi_yes = match["kalshi_yes"] or 0.0
-                if not poly_yes or not kalshi_yes:
+                kalshi_inverted = match.get("kalshi_inverted", 0)
+
+                # For inverted matches, use Kalshi NO as the effective YES
+                # (the NO side of an inverted market = same outcome as Poly YES)
+                kalshi_yes_eff = (
+                    match["kalshi_no_raw"] or 0.0
+                    if kalshi_inverted
+                    else match["kalshi_yes_raw"] or 0.0
+                )
+
+                if not poly_yes or not kalshi_yes_eff:
                     continue
 
-                sd = calculate_spread(poly_yes, kalshi_yes)
+                sd = calculate_spread(poly_yes, kalshi_yes_eff)
 
                 await db.execute(
                     """UPDATE matches SET
@@ -256,7 +269,7 @@ async def _update_market_and_matches(market_id: str, yes_price: float, no_price:
                        WHERE id = ?""",
                     (
                         sd["raw_spread"], sd["fee_adjusted_spread"],
-                        poly_yes, kalshi_yes,
+                        poly_yes, kalshi_yes_eff,
                         now, match["id"],
                     ),
                 )
@@ -270,7 +283,7 @@ async def _update_market_and_matches(market_id: str, yes_price: float, no_price:
                             fee_adjusted_spread, recorded_at)
                            VALUES (?, ?, ?, ?, ?, ?)""",
                         (
-                            match_id, poly_yes, kalshi_yes,
+                            match_id, poly_yes, kalshi_yes_eff,
                             sd["raw_spread"], sd["fee_adjusted_spread"], now,
                         ),
                     )
@@ -282,8 +295,8 @@ async def _update_market_and_matches(market_id: str, yes_price: float, no_price:
                     "match_id": match_id,
                     "poly_yes": round(poly_yes, 6),
                     "poly_no": round(1.0 - poly_yes, 6),
-                    "kalshi_yes": round(kalshi_yes, 6),
-                    "kalshi_no": round(1.0 - kalshi_yes, 6),
+                    "kalshi_yes": round(kalshi_yes_eff, 6),
+                    "kalshi_no": round(1.0 - kalshi_yes_eff, 6),
                     "spread": round(sd["raw_spread"], 6),
                     "fee_adjusted_spread": round(sd["fee_adjusted_spread"], 6),
                     "last_updated": now,
