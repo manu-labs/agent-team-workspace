@@ -34,8 +34,9 @@ async def refresh_prices(db) -> dict:
     started = datetime.now(timezone.utc)
 
     # 1. Get top matched market pairs by volume (capped to avoid rate limiting)
+    # Include kalshi_inverted so we know whether to swap Kalshi prices
     cursor = await db.execute(
-        """SELECT id, polymarket_id, kalshi_id FROM matches
+        """SELECT id, polymarket_id, kalshi_id, kalshi_inverted FROM matches
            ORDER BY MIN(polymarket_volume, kalshi_volume) DESC
            LIMIT ?""",
         [_MAX_MATCHES_TO_REFRESH],
@@ -77,7 +78,7 @@ async def refresh_prices(db) -> dict:
         if not poly_price or not kalshi_price:
             continue
 
-        # Update markets table with fresh prices
+        # Update markets table with fresh raw prices (always store raw)
         for market_id, price_data in [
             (match["polymarket_id"], poly_price),
             (match["kalshi_id"], kalshi_price),
@@ -89,8 +90,15 @@ async def refresh_prices(db) -> dict:
                  price_data["volume"], now, market_id),
             )
 
-        # Recalculate spread
-        sd = calculate_spread(poly_price["yes_price"], kalshi_price["yes_price"])
+        # For inverted matches, swap Kalshi prices before spread calculation.
+        # The raw Kalshi YES price represents the wrong team — use NO price instead.
+        kalshi_inverted = match.get("kalshi_inverted", 0)
+        kalshi_yes_eff = (
+            kalshi_price["no_price"] if kalshi_inverted else kalshi_price["yes_price"]
+        )
+
+        # Recalculate spread using effective (orientation-corrected) prices
+        sd = calculate_spread(poly_price["yes_price"], kalshi_yes_eff)
 
         await db.execute(
             """UPDATE matches SET
@@ -100,7 +108,7 @@ async def refresh_prices(db) -> dict:
                 last_updated = ?
                WHERE id = ?""",
             (sd["raw_spread"], sd["fee_adjusted_spread"],
-             poly_price["yes_price"], kalshi_price["yes_price"],
+             poly_price["yes_price"], kalshi_yes_eff,
              poly_price["volume"], kalshi_price["volume"],
              now, match["id"]),
         )
@@ -111,7 +119,7 @@ async def refresh_prices(db) -> dict:
                (match_id, polymarket_yes, kalshi_yes, spread,
                 fee_adjusted_spread, recorded_at)
                VALUES (?, ?, ?, ?, ?, ?)""",
-            (match["id"], poly_price["yes_price"], kalshi_price["yes_price"],
+            (match["id"], poly_price["yes_price"], kalshi_yes_eff,
              sd["raw_spread"], sd["fee_adjusted_spread"], now),
         )
         refreshed += 1
@@ -223,5 +231,3 @@ async def _fetch_kalshi_price(client, semaphore, market_id: str, prices: dict) -
         except Exception as exc:
             logger.debug("Failed to fetch Kalshi %s: %s", ticker, exc)
             return False
-
-
