@@ -380,8 +380,9 @@ async def ingest_kalshi() -> dict:
             await db.execute(
                 """
                 INSERT INTO markets (id, platform, question, category, yes_price, no_price,
-                                     volume, end_date, url, raw_data, last_updated)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                     volume, end_date, url, raw_data, last_updated,
+                                     event_ticker)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     question     = excluded.question,
                     category     = excluded.category,
@@ -391,13 +392,15 @@ async def ingest_kalshi() -> dict:
                     end_date     = excluded.end_date,
                     url          = excluded.url,
                     raw_data     = excluded.raw_data,
-                    last_updated = excluded.last_updated
+                    last_updated = excluded.last_updated,
+                    event_ticker = excluded.event_ticker
                 """,
                 (
                     m.id, m.platform, m.question, m.category,
                     m.yes_price, m.no_price, m.volume,
                     m.end_date.isoformat() if m.end_date else None,
                     m.url, '{}', m.last_updated.isoformat(),
+                    m.event_ticker,
                 ),
             )
             upserted += 1

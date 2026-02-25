@@ -288,26 +288,28 @@ async def ingest_polymarket() -> dict:
                 """
                 INSERT INTO markets (id, platform, question, category, yes_price, no_price,
                                      volume, end_date, url, raw_data, last_updated,
-                                     clob_token_ids)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                     clob_token_ids, event_slug, sports_market_type)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
-                    question       = excluded.question,
-                    category       = excluded.category,
-                    yes_price      = excluded.yes_price,
-                    no_price       = excluded.no_price,
-                    volume         = excluded.volume,
-                    end_date       = excluded.end_date,
-                    url            = excluded.url,
-                    raw_data       = excluded.raw_data,
-                    last_updated   = excluded.last_updated,
-                    clob_token_ids = excluded.clob_token_ids
+                    question           = excluded.question,
+                    category           = excluded.category,
+                    yes_price          = excluded.yes_price,
+                    no_price           = excluded.no_price,
+                    volume             = excluded.volume,
+                    end_date           = excluded.end_date,
+                    url                = excluded.url,
+                    raw_data           = excluded.raw_data,
+                    last_updated       = excluded.last_updated,
+                    clob_token_ids     = excluded.clob_token_ids,
+                    event_slug         = excluded.event_slug,
+                    sports_market_type = excluded.sports_market_type
                 """,
                 (
                     m.id, m.platform, m.question, m.category,
                     m.yes_price, m.no_price, m.volume,
                     m.end_date.isoformat() if m.end_date else None,
                     m.url, '{}', m.last_updated.isoformat(),
-                    m.clob_token_ids,
+                    m.clob_token_ids, m.event_slug, m.sports_market_type,
                 ),
             )
             upserted += 1

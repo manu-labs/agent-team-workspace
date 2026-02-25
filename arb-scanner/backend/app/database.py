@@ -33,7 +33,10 @@ async def init_db():
             url TEXT DEFAULT '',
             raw_data TEXT DEFAULT '{}',
             last_updated TEXT NOT NULL,
-            clob_token_ids TEXT DEFAULT ''
+            clob_token_ids TEXT DEFAULT '',
+            event_slug TEXT DEFAULT '',
+            event_ticker TEXT DEFAULT '',
+            sports_market_type TEXT DEFAULT ''
         );
 
         CREATE TABLE IF NOT EXISTS matches (
@@ -82,6 +85,9 @@ async def init_db():
     # Migration: add columns to existing databases that predate them
     for migration in [
         "ALTER TABLE markets ADD COLUMN clob_token_ids TEXT DEFAULT ''",
+        "ALTER TABLE markets ADD COLUMN event_slug TEXT DEFAULT ''",
+        "ALTER TABLE markets ADD COLUMN event_ticker TEXT DEFAULT ''",
+        "ALTER TABLE markets ADD COLUMN sports_market_type TEXT DEFAULT ''",
     ]:
         try:
             await db.execute(migration)

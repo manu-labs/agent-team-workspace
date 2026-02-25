@@ -255,18 +255,20 @@ async def _run_cycle() -> None:
         # --- Step 3: Match (always runs, skips already-confirmed pairs) ---
         now = datetime.now(timezone.utc)
 
-        # Fetch active markets from DB for matching (includes end_date for
-        # Groq LLM confirmation prompt — prevents false matches on markets
-        # with similar questions but different resolution deadlines)
+        # Fetch active markets from DB for matching. Includes sports slug fields
+        # (event_slug, sports_market_type, event_ticker) so Pass 0 deterministic
+        # matching can run without any API calls.
         poly_cur = await db.execute(
-            "SELECT id, question, category, yes_price, no_price, volume, url, end_date "
+            "SELECT id, question, category, yes_price, no_price, volume, url, end_date, "
+            "event_slug, sports_market_type "
             "FROM markets WHERE platform = 'polymarket'"
             "  AND volume > 0 AND yes_price BETWEEN 0.01 AND 0.99"
         )
         poly_markets = [dict(r) for r in await poly_cur.fetchall()]
 
         kalshi_cur = await db.execute(
-            "SELECT id, question, category, yes_price, no_price, volume, url, end_date "
+            "SELECT id, question, category, yes_price, no_price, volume, url, end_date, "
+            "event_ticker "
             "FROM markets WHERE platform = 'kalshi'"
             "  AND volume > 0 AND yes_price BETWEEN 0.01 AND 0.99"
         )
