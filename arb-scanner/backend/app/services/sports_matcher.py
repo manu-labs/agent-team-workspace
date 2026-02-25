@@ -5,7 +5,7 @@ their market slugs/tickers, enabling O(1) exact matching without embeddings
 or LLM calls.
 
 Polymarket slug format:  {league}-{team1}-{team2}-{YYYY-MM-DD}[-suffix]
-Kalshi event_ticker:     KX{LEAGUE}GAME-{DDMMMYY}{TEAM1}{TEAM2}
+Kalshi event_ticker:     KX{LEAGUE}GAME-{YY}{MMM}{DD}{TEAM1}{TEAM2}
 
 Canonical key: {league}:{team_a}-{team_b}:{YYYY-MM-DD}  (teams sorted)
 """
@@ -64,8 +64,8 @@ _POLY_SLUG_RE = re.compile(
 # Strip trailing digit(s) from team codes (rma1 → rma, ata1 → ata)
 _TRAILING_DIGITS_RE = re.compile(r"\d+$")
 
-# Kalshi suffix: DDMMMYY + 6 uppercase alpha chars (two 3-char team codes)
-# e.g. 26FEB25OKCDET
+# Kalshi suffix: YYMMMDD + 6 uppercase alpha chars (two 3-char team codes)
+# e.g. 26FEB25OKCDET → year=2026, month=FEB, day=25, teams=OKC+DET
 _KALSHI_SUFFIX_RE = re.compile(r"^(\d{2})([A-Z]{3})(\d{2})([A-Z]{6})$")
 
 _MONTH_MAP = {
