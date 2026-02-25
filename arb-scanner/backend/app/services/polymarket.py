@@ -116,20 +116,34 @@ def _normalize(raw: dict) -> NormalizedMarket | None:
         # Volume — can be string or float
         volume = float(raw.get("volume") or raw.get("volumeNum") or 0)
 
-        # End date
-        end_date_raw = raw.get("endDate") or raw.get("end_date_iso")
+        # End date — prefer gameStartTime for sports markets (more precise than endDate).
+        # gameStartTime is when the game actually starts; endDate is the market resolution
+        # deadline which can be days after the game. Using gameStartTime ensures the date
+        # pre-filter correctly matches the game date across platforms.
         end_date = None
-        if end_date_raw:
+        game_start_raw = raw.get("gameStartTime")
+        if game_start_raw:
             try:
-                end_date = datetime.fromisoformat(end_date_raw.replace("Z", "+00:00"))
+                end_date = datetime.fromisoformat(game_start_raw.replace("Z", "+00:00"))
             except (ValueError, AttributeError):
                 pass
+
+        if end_date is None:
+            end_date_raw = raw.get("endDate") or raw.get("end_date_iso")
+            if end_date_raw:
+                try:
+                    end_date = datetime.fromisoformat(end_date_raw.replace("Z", "+00:00"))
+                except (ValueError, AttributeError):
+                    pass
 
         # URL — use event slug (not market slug) for correct Polymarket links
         events = raw.get("events") or []
         event_slug = events[0].get("slug", "") if events else ""
         slug = event_slug or raw.get("slug") or ""
         url = f"https://polymarket.com/event/{slug}" if slug else ""
+
+        # Sports market metadata for deterministic slug matching
+        sports_market_type = (raw.get("sportsMarketType") or "").strip()
 
         return NormalizedMarket(
             id=f"{_PLATFORM}:{market_id}",
@@ -144,6 +158,8 @@ def _normalize(raw: dict) -> NormalizedMarket | None:
             clob_token_ids=clob_token_id,
             raw_data=raw,
             last_updated=datetime.now(timezone.utc),
+            event_slug=slug,
+            sports_market_type=sports_market_type,
         )
     except Exception as exc:
         logger.warning("Failed to normalize Polymarket market %s: %s", raw.get("id"), exc)
@@ -157,13 +173,17 @@ async def _fetch_page(
     end_date_max: str,
 ) -> list[dict]:
     """Fetch a single page from the Gamma API with retry/backoff."""
+    # Use the lower of MIN_MATCH_VOLUME and MIN_SPORTS_VOLUME as the API floor so
+    # both regular and sports markets (which have lower volume) come through.
+    # Per-market volume filtering is done client-side in fetch_polymarket_markets().
+    api_volume_min = min(settings.MIN_MATCH_VOLUME, settings.MIN_SPORTS_VOLUME)
     params = {
         "active": "true",
         "closed": "false",
         "archived": "false",
         "end_date_min": end_date_min,
         "end_date_max": end_date_max,
-        "volume_num_min": settings.MIN_MATCH_VOLUME,
+        "volume_num_min": api_volume_min,
         "offset": offset,
         "limit": _PAGE_SIZE,
     }
@@ -197,7 +217,7 @@ async def _fetch_page(
 
 
 async def fetch_polymarket_markets() -> list[NormalizedMarket]:
-    """Fetch active Polymarket markets via server-side date filter + MIN_MATCH_VOLUME."""
+    """Fetch active Polymarket markets via server-side date filter + volume floor."""
     markets: list[NormalizedMarket] = []
     low_volume_filtered = 0
     offset = 0
@@ -220,8 +240,15 @@ async def fetch_polymarket_markets() -> list[NormalizedMarket]:
                 if not market:
                     continue
 
-                # Skip low-volume markets (expiry filtering is done server-side)
-                if market.volume < settings.MIN_MATCH_VOLUME:
+                # Apply per-market volume floor:
+                # Sports markets (has sportsMarketType) use MIN_SPORTS_VOLUME.
+                # All other markets use MIN_MATCH_VOLUME.
+                volume_floor = (
+                    settings.MIN_SPORTS_VOLUME
+                    if market.sports_market_type
+                    else settings.MIN_MATCH_VOLUME
+                )
+                if market.volume < volume_floor:
                     low_volume_filtered += 1
                     continue
 
