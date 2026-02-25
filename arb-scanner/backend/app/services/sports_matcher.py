@@ -59,7 +59,9 @@ KALSHI_LEAGUE_MAP: dict[str, str] = {
     "KXLOLGAME": "lol",
     "KXCS2GAME": "cs2",
     "KXATPGAME": "atp",
+    "KXATPMATCH": "atp",      # alternative series name used for some ATP events
     "KXWTAGAME": "wta",
+    "KXWTAMATCH": "wta",      # actual live series name (KXWTAGAME was incorrect in v1)
 }
 
 # ---------------------------------------------------------------------------
@@ -322,4 +324,5 @@ def match_sports_deterministic(
         len(matched),
     )
     return matched
+
 
