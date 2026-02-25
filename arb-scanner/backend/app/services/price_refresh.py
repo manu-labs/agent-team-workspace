@@ -34,9 +34,8 @@ async def refresh_prices(db) -> dict:
     started = datetime.now(timezone.utc)
 
     # 1. Get top matched market pairs by volume (capped to avoid rate limiting)
-    # Include kalshi_inverted so we know whether to swap Kalshi prices
     cursor = await db.execute(
-        """SELECT id, polymarket_id, kalshi_id, kalshi_inverted FROM matches
+        """SELECT id, polymarket_id, kalshi_id FROM matches
            ORDER BY MIN(polymarket_volume, kalshi_volume) DESC
            LIMIT ?""",
         [_MAX_MATCHES_TO_REFRESH],
@@ -90,15 +89,8 @@ async def refresh_prices(db) -> dict:
                  price_data["volume"], now, market_id),
             )
 
-        # For inverted matches, swap Kalshi prices before spread calculation.
-        # The raw Kalshi YES price represents the wrong team — use NO price instead.
-        kalshi_inverted = match.get("kalshi_inverted", 0)
-        kalshi_yes_eff = (
-            kalshi_price["no_price"] if kalshi_inverted else kalshi_price["yes_price"]
-        )
-
-        # Recalculate spread using effective (orientation-corrected) prices
-        sd = calculate_spread(poly_price["yes_price"], kalshi_yes_eff)
+        # Recalculate spread using Kalshi YES price (all matches are aligned)
+        sd = calculate_spread(poly_price["yes_price"], kalshi_price["yes_price"])
 
         await db.execute(
             """UPDATE matches SET
@@ -108,7 +100,7 @@ async def refresh_prices(db) -> dict:
                 last_updated = ?
                WHERE id = ?""",
             (sd["raw_spread"], sd["fee_adjusted_spread"],
-             poly_price["yes_price"], kalshi_yes_eff,
+             poly_price["yes_price"], kalshi_price["yes_price"],
              poly_price["volume"], kalshi_price["volume"],
              now, match["id"]),
         )
@@ -119,7 +111,7 @@ async def refresh_prices(db) -> dict:
                (match_id, polymarket_yes, kalshi_yes, spread,
                 fee_adjusted_spread, recorded_at)
                VALUES (?, ?, ?, ?, ?, ?)""",
-            (match["id"], poly_price["yes_price"], kalshi_yes_eff,
+            (match["id"], poly_price["yes_price"], kalshi_price["yes_price"],
              sd["raw_spread"], sd["fee_adjusted_spread"], now),
         )
         refreshed += 1
