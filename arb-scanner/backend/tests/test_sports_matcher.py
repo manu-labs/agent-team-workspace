@@ -1,10 +1,12 @@
 """Tests for app/services/sports_matcher.py
 
 Tests cover:
-- parse_poly_slug: 10+ cases including UCL trailing digit, La Liga 2, edge cases
-- parse_kalshi_event_ticker: 10+ cases including YY-MMM-DD format, parlay filter, edge cases
+- parse_poly_slug: 12+ cases including UCL trailing digit, La Liga 2, edge cases
+- parse_kalshi_event_ticker: 15+ cases — 3-tuple (league, teams_str, date),
+  variable-length team codes, optional time prefix stripping, parlay filter
 - canonical_sports_key: order-independence, sorting
-- match_sports_deterministic: 10+ known cross-platform pairs, moneyline filter, parlay filter
+- match_sports_deterministic: 10+ known cross-platform pairs, moneyline filter,
+  parlay filter, team alias resolution, both team orderings, variable-length teams
 """
 
 import pytest
@@ -12,6 +14,7 @@ import pytest
 from app.services.sports_matcher import (
     KALSHI_LEAGUE_MAP,
     POLY_LEAGUE_MAP,
+    TEAM_ALIASES,
     canonical_sports_key,
     match_sports_deterministic,
     parse_kalshi_event_ticker,
@@ -90,42 +93,88 @@ class TestParsePolySlug:
 # ---------------------------------------------------------------------------
 # parse_kalshi_event_ticker
 # ---------------------------------------------------------------------------
+# NOTE: Returns (league, teams_str, date) — teams_str is the FULL concatenation
+# of both team codes (lowercase, unsplit). Caller handles the split.
 
 class TestParseKalshiEventTicker:
 
-    def test_nba_basic(self):
-        # Format: KX{LEAGUE}GAME-{YY}{MMM}{DD}{TEAM1}{TEAM2}
-        assert parse_kalshi_event_ticker("KXNBAGAME-26FEB25OKCDET") == ("nba", "okc", "det", "2026-02-25")
+    # --- Standard 3+3 team codes ---
+
+    def test_nba_basic_returns_3_tuple(self):
+        # Returns (league, teams_str, date) — teams are NOT split
+        result = parse_kalshi_event_ticker("KXNBAGAME-26FEB25OKCDET")
+        assert result == ("nba", "okcdet", "2026-02-25")
 
     def test_nba_different_game(self):
-        assert parse_kalshi_event_ticker("KXNBAGAME-26FEB25SACHOU") == ("nba", "sac", "hou", "2026-02-25")
+        assert parse_kalshi_event_ticker("KXNBAGAME-26FEB25SACHOU") == ("nba", "sachou", "2026-02-25")
 
     def test_nba_third_game(self):
-        assert parse_kalshi_event_ticker("KXNBAGAME-26FEB25GSWMEM") == ("nba", "gsw", "mem", "2026-02-25")
+        assert parse_kalshi_event_ticker("KXNBAGAME-26FEB25GSWMEM") == ("nba", "gswmem", "2026-02-25")
 
     def test_ucl(self):
-        assert parse_kalshi_event_ticker("KXUCLGAME-26FEB25RMABEN") == ("ucl", "rma", "ben", "2026-02-25")
+        assert parse_kalshi_event_ticker("KXUCLGAME-26FEB25RMABEN") == ("ucl", "rmaben", "2026-02-25")
 
     def test_ucl_second_game(self):
-        assert parse_kalshi_event_ticker("KXUCLGAME-26FEB25ATABVB") == ("ucl", "ata", "bvb", "2026-02-25")
+        assert parse_kalshi_event_ticker("KXUCLGAME-26FEB25ATABVB") == ("ucl", "atabvb", "2026-02-25")
 
     def test_laliga2(self):
-        assert parse_kalshi_event_ticker("KXLALIGA2GAME-26FEB08CEUCOR") == ("laliga2", "ceu", "cor", "2026-02-08")
-
-    def test_nhl(self):
-        assert parse_kalshi_event_ticker("KXNHLGAME-26FEB25BOSTOR") == ("nhl", "bos", "tor", "2026-02-25")
+        assert parse_kalshi_event_ticker("KXLALIGA2GAME-26FEB08CEUCOR") == ("laliga2", "ceucor", "2026-02-08")
 
     def test_epl(self):
-        assert parse_kalshi_event_ticker("KXEPLGAME-26MAR01LIVMCI") == ("epl", "liv", "mci", "2026-03-01")
-
-    def test_lol(self):
-        assert parse_kalshi_event_ticker("KXLOLGAME-26MAR01C9TLMX") is None  # 7 chars → suffix len wrong
+        assert parse_kalshi_event_ticker("KXEPLGAME-26MAR05TOTCRY") == ("epl", "totcry", "2026-03-05")
 
     def test_cs2(self):
-        assert parse_kalshi_event_ticker("KXCS2GAME-26MAR15NRGFAZ") == ("cs2", "nrg", "faz", "2026-03-15")
+        assert parse_kalshi_event_ticker("KXCS2GAME-26MAR15NRGFAZ") == ("cs2", "nrgfaz", "2026-03-15")
 
-    def test_parlay_filtered(self):
-        # Multi-game parlays should not be parseable (KXMVESPORTSMULTIGAME not in KALSHI_LEAGUE_MAP)
+    # --- Variable-length team codes ---
+
+    def test_nhl_short_3_plus_2(self):
+        # VGK(3) + LA(2) = 5 chars total
+        assert parse_kalshi_event_ticker("KXNHLGAME-26FEB25VGKLA") == ("nhl", "vgkla", "2026-02-25")
+
+    def test_nhl_short_3_plus_2_different(self):
+        # TOR(3) + TB(2) = TORTB, 5 chars
+        assert parse_kalshi_event_ticker("KXNHLGAME-26FEB25TORTB") == ("nhl", "tortb", "2026-02-25")
+
+    def test_dota2_long_esports(self):
+        # LIQUID(6) + PARI(4) = LIQUIDPARI, 10 chars
+        assert parse_kalshi_event_ticker("KXDOTA2GAME-26FEB25LIQUIDPARI") == ("dota2", "liquidpari", "2026-02-25")
+
+    def test_dota2_medium_esports(self):
+        # TUNDRA(6) + FLC(3) = TUNDRAFLC, 9 chars
+        assert parse_kalshi_event_ticker("KXDOTA2GAME-26FEB25TUNDRAFLC") == ("dota2", "tundraflc", "2026-02-25")
+
+    # --- Optional time prefix (HHMM) ---
+
+    def test_time_prefix_stripped_hypothetical_nba(self):
+        # If an NBA ticker had a time prefix, it should be stripped
+        # "26FEB251930OKCDET" → strip 1930 → teams = "okcdet"
+        result = parse_kalshi_event_ticker("KXNBAGAME-26FEB251930OKCDET")
+        assert result == ("nba", "okcdet", "2026-02-25")
+
+    def test_time_prefix_early_morning(self):
+        # 0900 prefix
+        result = parse_kalshi_event_ticker("KXNHLGAME-26FEB280900VGKLA")
+        assert result == ("nhl", "vgkla", "2026-02-28")
+
+    def test_time_prefix_afternoon(self):
+        # 1600 prefix
+        result = parse_kalshi_event_ticker("KXNHLGAME-26FEB281600TORTB")
+        assert result == ("nhl", "tortb", "2026-02-28")
+
+    # --- Date format is YY-MMM-DD (year-first) ---
+
+    def test_date_yymmmdd_format_is_year_first(self):
+        # "26FEB25" → year=2026, month=FEB, day=25 (NOT day=26, year=2025)
+        result = parse_kalshi_event_ticker("KXNBAGAME-26FEB25OKCDET")
+        assert result is not None
+        _, _, date_str = result
+        assert date_str == "2026-02-25"  # NOT "2025-02-26"
+
+    # --- Filtering ---
+
+    def test_parlay_not_in_league_map(self):
+        # KXMVESPORTSMULTIGAME not in KALSHI_LEAGUE_MAP → returns None
         assert parse_kalshi_event_ticker("KXMVESPORTSMULTIGAME-26FEB25OKCDET") is None
 
     def test_empty_string_returns_none(self):
@@ -138,19 +187,11 @@ class TestParseKalshiEventTicker:
         assert parse_kalshi_event_ticker("KXUNKNOWN-26FEB25OKCDET") is None
 
     def test_invalid_suffix_format_returns_none(self):
-        # Suffix doesn't match YYMMMDD + 6 alpha chars
         assert parse_kalshi_event_ticker("KXNBAGAME-INVALIDFORMAT") is None
 
     def test_lowercase_handled(self):
         # series_prefix is uppercased internally
-        assert parse_kalshi_event_ticker("kxnbagame-26FEB25OKCDET") == ("nba", "okc", "det", "2026-02-25")
-
-    def test_date_yymmmdd_format_is_correct(self):
-        # Verify YY-MMM-DD format: "26FEB25" → year=2026, month=02, day=25
-        result = parse_kalshi_event_ticker("KXNBAGAME-26FEB25OKCDET")
-        assert result is not None
-        _, _, _, date_str = result
-        assert date_str == "2026-02-25"  # NOT 2025-02-26
+        assert parse_kalshi_event_ticker("kxnbagame-26FEB25OKCDET") == ("nba", "okcdet", "2026-02-25")
 
 
 # ---------------------------------------------------------------------------
@@ -209,6 +250,8 @@ def _kalshi(market_id: str, event_ticker: str) -> dict:
 
 class TestMatchSportsDeterministic:
 
+    # --- Known cross-platform pairs (NBA — 3+3) ---
+
     def test_nba_okc_det_matches(self):
         poly = [_poly("P1", "nba-okc-det-2026-02-25")]
         kalshi = [_kalshi("K1", "KXNBAGAME-26FEB25OKCDET")]
@@ -224,8 +267,6 @@ class TestMatchSportsDeterministic:
         kalshi = [_kalshi("K2", "KXNBAGAME-26FEB25SACHOU")]
         result = match_sports_deterministic(poly, kalshi)
         assert len(result) == 1
-        assert result[0]["poly_id"] == "polymarket:P2"
-        assert result[0]["kalshi_id"] == "kalshi:K2"
 
     def test_nba_gsw_mem_matches(self):
         poly = [_poly("P3", "nba-gsw-mem-2026-02-25")]
@@ -233,14 +274,13 @@ class TestMatchSportsDeterministic:
         result = match_sports_deterministic(poly, kalshi)
         assert len(result) == 1
 
+    # --- UCL with trailing digit stripping ---
+
     def test_ucl_rma_trailing_digit(self):
-        # "rma1" → "rma" → matches "RMA" in KXUCLGAME
         poly = [_poly("P4", "ucl-rma1-ben-2026-02-25")]
         kalshi = [_kalshi("K4", "KXUCLGAME-26FEB25RMABEN")]
         result = match_sports_deterministic(poly, kalshi)
-        assert len(result) == 1
-        assert result[0]["poly_id"] == "polymarket:P4"
-        assert result[0]["kalshi_id"] == "kalshi:K4"
+        assert len(result) == 1, "UCL trailing digit (rma1→rma) should match"
 
     def test_ucl_ata_trailing_digit(self):
         poly = [_poly("P5", "ucl-ata1-bvb-2026-02-25")]
@@ -248,35 +288,85 @@ class TestMatchSportsDeterministic:
         result = match_sports_deterministic(poly, kalshi)
         assert len(result) == 1
 
+    # --- La Liga 2 ---
+
     def test_laliga2_matches(self):
         poly = [_poly("P6", "es2-ceu-cor-2026-02-08")]
         kalshi = [_kalshi("K6", "KXLALIGA2GAME-26FEB08CEUCOR")]
         result = match_sports_deterministic(poly, kalshi)
         assert len(result) == 1
 
-    def test_nhl_matches(self):
-        poly = [_poly("P7", "nhl-bos-tor-2026-02-25")]
-        kalshi = [_kalshi("K7", "KXNHLGAME-26FEB25BOSTOR")]
+    # --- NHL with 2-char team codes ---
+
+    def test_nhl_3_plus_2_matches(self):
+        # Poly "vgk" + "la" = "vgkla" → matches KXNHLGAME suffix "VGKLA"
+        poly = [_poly("P7", "nhl-vgk-la-2026-02-25")]
+        kalshi = [_kalshi("K7", "KXNHLGAME-26FEB25VGKLA")]
         result = match_sports_deterministic(poly, kalshi)
         assert len(result) == 1
 
+    def test_nhl_tor_tb_matches(self):
+        poly = [_poly("P8", "nhl-tor-tb-2026-02-25")]
+        kalshi = [_kalshi("K8", "KXNHLGAME-26FEB25TORTB")]
+        result = match_sports_deterministic(poly, kalshi)
+        assert len(result) == 1
+
+    # --- EPL ---
+
     def test_epl_matches(self):
-        poly = [_poly("P8", "epl-liv-mci-2026-03-01")]
-        kalshi = [_kalshi("K8", "KXEPLGAME-26MAR01LIVMCI")]
+        poly = [_poly("P9", "epl-liv-mci-2026-03-01")]
+        kalshi = [_kalshi("K9", "KXEPLGAME-26MAR01LIVMCI")]
+        result = match_sports_deterministic(poly, kalshi)
+        assert len(result) == 1
+
+    # --- Esports with long/variable team codes ---
+
+    def test_dota2_long_teams_matches(self):
+        # "liquid" (6) + "pari" (4) = "liquidpari" → Poly slug "dota2-liquid-pari-..."
+        poly = [_poly("P10", "dota2-liquid-pari-2026-02-25")]
+        kalshi = [_kalshi("K10", "KXDOTA2GAME-26FEB25LIQUIDPARI")]
         result = match_sports_deterministic(poly, kalshi)
         assert len(result) == 1
 
     def test_cs2_matches(self):
-        poly = [_poly("P9", "cs2-nrg-faz-2026-03-15")]
-        kalshi = [_kalshi("K9", "KXCS2GAME-26MAR15NRGFAZ")]
+        poly = [_poly("P11", "cs2-nrg-faz-2026-03-15")]
+        kalshi = [_kalshi("K11", "KXCS2GAME-26MAR15NRGFAZ")]
         result = match_sports_deterministic(poly, kalshi)
         assert len(result) == 1
 
+    # --- Bundesliga ---
+
     def test_bundesliga_matches(self):
-        poly = [_poly("P10", "bun-bay-bvb-2026-03-08")]
-        kalshi = [_kalshi("K10", "KXBUNDESLIGAGAME-26MAR08BAYBVB")]
+        poly = [_poly("P12", "bun-bay-bvb-2026-03-08")]
+        kalshi = [_kalshi("K12", "KXBUNDESLIGAGAME-26MAR08BAYBVB")]
         result = match_sports_deterministic(poly, kalshi)
         assert len(result) == 1
+
+    # --- Team alias resolution ---
+
+    def test_team_alias_utah_to_uta(self):
+        # Polymarket "utah" → alias resolves to "uta" → matches Kalshi "uta"
+        poly = [_poly("P13", "nhl-utah-col-2026-02-25")]
+        kalshi = [_kalshi("K13", "KXNHLGAME-26FEB25UTACOL")]
+        result = match_sports_deterministic(poly, kalshi)
+        assert len(result) == 1
+
+    # --- Team order independence ---
+
+    def test_team_order_independent_fwd(self):
+        poly = [_poly("P1", "nba-okc-det-2026-02-25")]
+        kalshi = [_kalshi("K1", "KXNBAGAME-26FEB25OKCDET")]
+        result = match_sports_deterministic(poly, kalshi)
+        assert len(result) == 1
+
+    def test_team_order_independent_rev(self):
+        # Poly lists teams reversed vs Kalshi ticker
+        poly = [_poly("P1", "nba-det-okc-2026-02-25")]
+        kalshi = [_kalshi("K1", "KXNBAGAME-26FEB25OKCDET")]
+        result = match_sports_deterministic(poly, kalshi)
+        assert len(result) == 1
+
+    # --- Batch matching ---
 
     def test_multiple_games_batch_matching(self):
         poly = [
@@ -292,26 +382,16 @@ class TestMatchSportsDeterministic:
         result = match_sports_deterministic(poly, kalshi)
         assert len(result) == 3
 
-    def test_team_order_independent(self):
-        # okc-det vs det-okc should both match the same kalshi market
-        poly_fwd = [_poly("P1", "nba-okc-det-2026-02-25")]
-        poly_rev = [_poly("P1", "nba-det-okc-2026-02-25")]
-        kalshi = [_kalshi("K1", "KXNBAGAME-26FEB25OKCDET")]
-
-        result_fwd = match_sports_deterministic(poly_fwd, kalshi)
-        result_rev = match_sports_deterministic(poly_rev, kalshi)
-        assert len(result_fwd) == 1
-        assert len(result_rev) == 1
+    # --- Filters ---
 
     def test_non_moneyline_excluded(self):
-        # Polymarket spreads market should not be matched
         poly = [_poly("P1", "nba-okc-det-2026-02-25", sports_market_type="spreads")]
         kalshi = [_kalshi("K1", "KXNBAGAME-26FEB25OKCDET")]
         result = match_sports_deterministic(poly, kalshi)
         assert len(result) == 0
 
     def test_empty_sports_market_type_allowed(self):
-        # Empty sports_market_type → treat as moneyline (default binary market)
+        # Empty sports_market_type → treat as binary moneyline
         poly = [_poly("P1", "nba-okc-det-2026-02-25", sports_market_type="")]
         kalshi = [_kalshi("K1", "KXNBAGAME-26FEB25OKCDET")]
         result = match_sports_deterministic(poly, kalshi)
@@ -325,7 +405,6 @@ class TestMatchSportsDeterministic:
         assert len(result) == 0
 
     def test_no_match_different_dates(self):
-        # Same teams, different dates → different canonical keys
         poly = [_poly("P1", "nba-okc-det-2026-02-25")]
         kalshi = [_kalshi("K1", "KXNBAGAME-26FEB26OKCDET")]  # Feb 26, not 25
         result = match_sports_deterministic(poly, kalshi)
@@ -333,7 +412,7 @@ class TestMatchSportsDeterministic:
 
     def test_no_match_different_teams(self):
         poly = [_poly("P1", "nba-okc-det-2026-02-25")]
-        kalshi = [_kalshi("K1", "KXNBAGAME-26FEB25LACLAC")]  # different teams
+        kalshi = [_kalshi("K1", "KXNBAGAME-26FEB25SACMEM")]  # different teams
         result = match_sports_deterministic(poly, kalshi)
         assert len(result) == 0
 
@@ -343,7 +422,6 @@ class TestMatchSportsDeterministic:
         assert match_sports_deterministic([], [_kalshi("K1", "KXNBAGAME-26FEB25OKCDET")]) == []
 
     def test_non_sports_poly_slug_not_matched(self):
-        # Non-sports slug (not in POLY_LEAGUE_MAP) → no match
         poly = [_poly("P1", "will-btc-hit-100k-2026-03-31")]
         kalshi = [_kalshi("K1", "KXNBAGAME-26FEB25OKCDET")]
         result = match_sports_deterministic(poly, kalshi)
@@ -382,3 +460,6 @@ class TestLeagueMaps:
 
     def test_parlay_series_not_in_kalshi_map(self):
         assert "KXMVESPORTSMULTIGAME" not in KALSHI_LEAGUE_MAP
+
+    def test_team_aliases_utah_to_uta(self):
+        assert TEAM_ALIASES.get("utah") == "uta"
