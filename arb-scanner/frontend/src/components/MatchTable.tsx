@@ -77,9 +77,10 @@ function LastUpdated({ updatedAt }: { updatedAt: Date | null }) {
 
 // ── Sort helpers ──────────────────────────────────────────────────────────────
 
-type SortKey = "spread" | "volume" | "confidence";
+type SortKey = "ends" | "spread" | "volume" | "confidence";
 
 const SORT_LABELS: Record<SortKey, string> = {
+  ends: "Ends",
   spread: "Spread",
   volume: "Volume",
   confidence: "Conf",
@@ -87,6 +88,13 @@ const SORT_LABELS: Record<SortKey, string> = {
 
 function sortMatches(matches: Match[], key: SortKey): Match[] {
   return [...matches].sort((a, b) => {
+    if (key === "ends") {
+      // Soonest first; empty end_date sorts to bottom
+      if (a.end_date === "" && b.end_date === "") return 0;
+      if (a.end_date === "") return 1;
+      if (b.end_date === "") return -1;
+      return a.end_date.localeCompare(b.end_date);
+    }
     if (key === "spread") return b.fee_adjusted_spread - a.fee_adjusted_spread;
     if (key === "volume") return b.volume - a.volume;
     return b.confidence - a.confidence;
@@ -114,7 +122,7 @@ export default function MatchTable() {
   const [search, setSearch] = useState("");
   const [minSpreadCents, setMinSpreadCents] = useState(0); // slider in cents
   const [minVolume, setMinVolume] = useState(0); // server-side volume filter
-  const [sortKey, setSortKey] = useState<SortKey>("volume"); // default: most liquid first
+  const [sortKey, setSortKey] = useState<SortKey>("ends"); // default: soonest expiration first
 
   const abortRef = useRef<AbortController | null>(null);
 
@@ -306,7 +314,7 @@ export default function MatchTable() {
                 ["Kalshi", "w-20"],
                 [sortKey === "spread" ? "Spread \u2193" : "Spread", "w-24"],
                 [sortKey === "volume" ? "Volume \u2193" : "Volume", "w-24"],
-                ["Ends", "w-16"],
+                [sortKey === "ends" ? "Ends \u2193" : "Ends", "w-16"],
                 ["Links", "w-28"],
               ].map(([label, width]) => (
                 <th
