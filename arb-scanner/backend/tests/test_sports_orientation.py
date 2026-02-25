@@ -199,7 +199,7 @@ class TestMatchSportsDeterministicOrientation:
         return {"id": mid, "event_ticker": ticker,
                 "yes_price": 0.53, "no_price": 0.47}
 
-    # Integration test 11: both aligned and inverted Kalshi markets present
+    # Integration test: both aligned and inverted Kalshi markets present
     # → only aligned match returned
     def test_prefers_aligned_over_inverted(self):
         poly = [self._make_poly("poly:1", "nba-okc-det-2026-02-25")]
@@ -212,23 +212,20 @@ class TestMatchSportsDeterministicOrientation:
         results = match_sports_deterministic(poly, kalshi)
         assert len(results) == 1
         assert results[0]["kalshi_id"] == "kalshi:KXNBAGAME-26FEB25OKCDET-OKC"
-        assert results[0]["inverted"] is False
 
-    # Integration test 12: only inverted Kalshi market exists
-    # → match returned with inverted=True
-    def test_falls_back_to_inverted(self):
+    # Integration test: only inverted Kalshi market exists
+    # → no match created (inverted market skipped)
+    def test_skips_inverted_when_no_aligned(self):
         poly = [self._make_poly("poly:1", "nba-okc-det-2026-02-25")]
         kalshi = [
             self._make_kalshi("kalshi:KXNBAGAME-26FEB25OKCDET-DET",
                                "KXNBAGAME-26FEB25OKCDET"),
         ]
         results = match_sports_deterministic(poly, kalshi)
-        assert len(results) == 1
-        assert results[0]["kalshi_id"] == "kalshi:KXNBAGAME-26FEB25OKCDET-DET"
-        assert results[0]["inverted"] is True
+        assert len(results) == 0  # inverted market skipped — no match created
 
-    # Integration test 13: aligned match → correct orientation
-    def test_aligned_match_inverted_false(self):
+    # Integration test: aligned match → correct market used
+    def test_aligned_match_selected(self):
         poly = [self._make_poly("poly:1", "wta-bartunk-tow-2026-02-25")]
         kalshi = [
             self._make_kalshi("kalshi:KXWTAMATCH-26FEB25BARTOW-BAR",
@@ -236,7 +233,7 @@ class TestMatchSportsDeterministicOrientation:
         ]
         results = match_sports_deterministic(poly, kalshi)
         assert len(results) == 1
-        assert results[0]["inverted"] is False
+        assert results[0]["kalshi_id"] == "kalshi:KXWTAMATCH-26FEB25BARTOW-BAR"
 
     def test_no_duplicate_matches_per_poly_market(self):
         """Even with multiple Kalshi variants, Poly market gets only one match."""
