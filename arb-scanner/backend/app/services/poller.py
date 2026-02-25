@@ -21,6 +21,7 @@ from app.services.kalshi import ingest_kalshi
 from app.services.matcher import match_markets
 from app.services.polymarket import ingest_polymarket
 from app.services.price_refresh import refresh_prices
+from app.services.sports_matcher import KALSHI_LEAGUE_MAP
 
 logger = logging.getLogger(__name__)
 
@@ -164,11 +165,12 @@ async def _run_cycle() -> None:
     """Execute one full discovery cycle under a lock (prevents concurrent runs).
 
     Steps:
-      1. Ingest markets from Polymarket and Kalshi
+      1.   Ingest markets from Polymarket and Kalshi
       1.5. Diff-based cleanup — remove markets/matches no longer returned by either API
-      2. Embed new/changed markets (delta embed — skips already-embedded)
-      3. Run matcher on all pairs (skips already-confirmed pairs)
-      4. Sync WS subscriptions — subscribe new matches, unsubscribe removed ones
+      1.6. Sports-only filter — remove any matches not in a known Kalshi sports series
+      2.   Embed new/changed markets (delta embed — skips already-embedded)
+      3.   Run matcher on all pairs (skips already-confirmed pairs)
+      4.   Sync WS subscriptions — subscribe new matches, unsubscribe removed ones
     """
     global _last_run
 
@@ -248,6 +250,39 @@ async def _run_cycle() -> None:
                 poly_fetched, kalshi_fetched,
             )
 
+        # --- Step 1.6: Sports-only match filter ---
+        # Purge any matches whose Kalshi side is not a known sports series.
+        # Catches old LLM matches for politics/crypto/etc. from before the
+        # Sports-Only Refactor (Epic #288), and prevents any future non-sports
+        # LLM matches from persisting.
+        #
+        # KALSHI_LEAGUE_MAP is the authoritative source — adding a new league
+        # there automatically keeps those matches; removing a league purges them.
+        # kalshi_id format: "kalshi:{series_prefix}-{date}{teams}-{outcome}"
+        sports_patterns = [f"kalshi:{prefix}-%" for prefix in KALSHI_LEAGUE_MAP]
+        is_sports_sql = " OR ".join("kalshi_id LIKE ?" for _ in sports_patterns)
+
+        count_cur = await db.execute(
+            f"SELECT COUNT(*) FROM matches WHERE NOT ({is_sports_sql})",
+            sports_patterns,
+        )
+        row = await count_cur.fetchone()
+        non_sports_count = row[0] if row else 0
+
+        if non_sports_count > 0:
+            await db.execute(
+                f"""DELETE FROM price_history WHERE match_id IN (
+                        SELECT id FROM matches WHERE NOT ({is_sports_sql})
+                    )""",
+                sports_patterns,
+            )
+            await db.execute(
+                f"DELETE FROM matches WHERE NOT ({is_sports_sql})",
+                sports_patterns,
+            )
+            await db.commit()
+            logger.info("Sports-only filter: removed %d non-sports matches", non_sports_count)
+
         # --- Step 2: Embed new/changed markets ---
         embed_count = await embed_new_markets(db)
         logger.info("Embed delta: %d markets embedded", embed_count)
@@ -279,6 +314,7 @@ async def _run_cycle() -> None:
         # Upsert confirmed matches into the matches table
         for m in confirmed:
             sd = calculate_spread(m["polymarket_yes"], m["kalshi_yes"])
+            kalshi_inverted = m.get("kalshi_inverted", 0)
             # Look up volumes from the markets table
             poly_vol = 0
             kalshi_vol = 0
@@ -296,18 +332,19 @@ async def _run_cycle() -> None:
                 """INSERT INTO matches (polymarket_id, kalshi_id, confidence, spread,
                                        fee_adjusted_spread, polymarket_yes, kalshi_yes,
                                        polymarket_volume, kalshi_volume,
-                                       question, last_updated)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                       question, last_updated, kalshi_inverted)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(polymarket_id, kalshi_id) DO UPDATE SET
-                       confidence = excluded.confidence,
+                       confidence       = excluded.confidence,
                        polymarket_volume = excluded.polymarket_volume,
-                       kalshi_volume = excluded.kalshi_volume,
-                       last_updated = excluded.last_updated""",
+                       kalshi_volume    = excluded.kalshi_volume,
+                       kalshi_inverted  = excluded.kalshi_inverted,
+                       last_updated     = excluded.last_updated""",
                 (m["polymarket_id"], m["kalshi_id"], m["confidence"],
                  sd["raw_spread"], sd["fee_adjusted_spread"],
                  m["polymarket_yes"], m["kalshi_yes"],
                  poly_vol, kalshi_vol, m["question"],
-                 now.isoformat()),
+                 now.isoformat(), kalshi_inverted),
             )
 
         match_result = {
