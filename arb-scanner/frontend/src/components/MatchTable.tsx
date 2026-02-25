@@ -78,6 +78,14 @@ function LastUpdated({ updatedAt }: { updatedAt: Date | null }) {
 // ── Sort helpers ──────────────────────────────────────────────────────────────
 
 type SortKey = "ends" | "spread" | "volume" | "confidence";
+type SortDir = "asc" | "desc";
+
+const DEFAULT_DIR: Record<SortKey, SortDir> = {
+  ends: "asc",
+  spread: "desc",
+  volume: "desc",
+  confidence: "desc",
+};
 
 const SORT_LABELS: Record<SortKey, string> = {
   ends: "Ends",
@@ -86,18 +94,49 @@ const SORT_LABELS: Record<SortKey, string> = {
   confidence: "Conf",
 };
 
-function sortMatches(matches: Match[], key: SortKey): Match[] {
+/** Map column header labels to their sort key */
+const HEADER_SORT_MAP: Record<string, SortKey> = {
+  Spread: "spread",
+  Volume: "volume",
+  Ends: "ends",
+};
+
+function sortMatches(matches: Match[], key: SortKey, dir: SortDir): Match[] {
   return [...matches].sort((a, b) => {
+    let cmp = 0;
+
     if (key === "ends") {
-      // Soonest first; empty end_date sorts to bottom
+      const now = Date.now();
+      const aTime = a.end_date ? new Date(a.end_date).getTime() : Infinity;
+      const bTime = b.end_date ? new Date(b.end_date).getTime() : Infinity;
+      const aExpired = aTime < now;
+      const bExpired = bTime < now;
+
+      // Empty end_date always goes to the very bottom
+      if (a.end_date === "" && b.end_date !== "") return 1;
+      if (a.end_date !== "" && b.end_date === "") return -1;
       if (a.end_date === "" && b.end_date === "") return 0;
-      if (a.end_date === "") return 1;
-      if (b.end_date === "") return -1;
-      return a.end_date.localeCompare(b.end_date);
+
+      // When ascending (soonest first): upcoming first, expired last
+      // When descending (farthest first): expired first, upcoming last
+      if (dir === "asc") {
+        if (aExpired && !bExpired) return 1;
+        if (!aExpired && bExpired) return -1;
+      } else {
+        if (aExpired && !bExpired) return -1;
+        if (!aExpired && bExpired) return 1;
+      }
+
+      cmp = aTime - bTime;
+    } else if (key === "spread") {
+      cmp = a.fee_adjusted_spread - b.fee_adjusted_spread;
+    } else if (key === "volume") {
+      cmp = a.volume - b.volume;
+    } else {
+      cmp = a.confidence - b.confidence;
     }
-    if (key === "spread") return b.fee_adjusted_spread - a.fee_adjusted_spread;
-    if (key === "volume") return b.volume - a.volume;
-    return b.confidence - a.confidence;
+
+    return dir === "asc" ? cmp : -cmp;
   });
 }
 
@@ -122,9 +161,20 @@ export default function MatchTable() {
   const [search, setSearch] = useState("");
   const [minSpreadCents, setMinSpreadCents] = useState(0); // slider in cents
   const [minVolume, setMinVolume] = useState(0); // server-side volume filter
-  const [sortKey, setSortKey] = useState<SortKey>("ends"); // default: soonest expiration first
+  const [sortKey, setSortKey] = useState<SortKey>("ends");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
 
   const abortRef = useRef<AbortController | null>(null);
+
+  /** Toggle sort: if same key, flip direction; if new key, use its default direction */
+  function handleSort(key: SortKey) {
+    if (key === sortKey) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir(DEFAULT_DIR[key]);
+    }
+  }
 
   const fetchMatches = useCallback(async () => {
     abortRef.current?.abort();
@@ -199,8 +249,6 @@ export default function MatchTable() {
   }, [matchIds]);
 
   // Client-side filtering + sorting
-  // Only apply spread filter when the user has explicitly set a minimum (slider > 0)
-  // This prevents rows from flashing in/out as WS prices cause spread to cross zero
   const minSpreadDecimal = minSpreadCents / 100;
   const visible = sortMatches(
     matches.filter((m) => {
@@ -210,10 +258,24 @@ export default function MatchTable() {
       }
       return true;
     }),
-    sortKey
+    sortKey,
+    sortDir
   );
 
   const hasActiveFilters = search.length > 0 || minSpreadCents > 0 || minVolume > 0;
+
+  const arrow = sortDir === "asc" ? " \u2191" : " \u2193";
+
+  // ── Column header config ──────────────────────────────────────────────────
+  const columns: { label: string; sortable: SortKey | null; width: string }[] = [
+    { label: "Market", sortable: null, width: "w-auto" },
+    { label: "Poly", sortable: null, width: "w-20" },
+    { label: "Kalshi", sortable: null, width: "w-20" },
+    { label: "Spread", sortable: "spread", width: "w-24" },
+    { label: "Volume", sortable: "volume", width: "w-24" },
+    { label: "Ends", sortable: "ends", width: "w-16" },
+    { label: "Links", sortable: null, width: "w-28" },
+  ];
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -275,7 +337,7 @@ export default function MatchTable() {
           {(Object.keys(SORT_LABELS) as SortKey[]).map((key) => (
             <button
               key={key}
-              onClick={() => setSortKey(key)}
+              onClick={() => handleSort(key)}
               className={[
                 "px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider transition-colors",
                 sortKey === key
@@ -284,7 +346,7 @@ export default function MatchTable() {
               ].join(" ")}
             >
               {SORT_LABELS[key]}
-              {sortKey === key && " \u2193"}
+              {sortKey === key && arrow}
             </button>
           ))}
         </div>
@@ -308,20 +370,22 @@ export default function MatchTable() {
           {/* Column headers — hidden on mobile */}
           <thead className="hidden sm:table-header-group">
             <tr className="border-b border-terminal-border">
-              {[
-                ["Market", "w-auto"],
-                ["Poly", "w-20"],
-                ["Kalshi", "w-20"],
-                [sortKey === "spread" ? "Spread \u2193" : "Spread", "w-24"],
-                [sortKey === "volume" ? "Volume \u2193" : "Volume", "w-24"],
-                [sortKey === "ends" ? "Ends \u2193" : "Ends", "w-16"],
-                ["Links", "w-28"],
-              ].map(([label, width]) => (
+              {columns.map(({ label, sortable, width }) => (
                 <th
                   key={label}
-                  className={`${width} px-3 py-2 text-left font-mono text-[10px] font-semibold uppercase tracking-wider text-zinc-500`}
+                  onClick={sortable ? () => handleSort(sortable) : undefined}
+                  className={[
+                    `${width} px-3 py-2 text-left font-mono text-[10px] font-semibold uppercase tracking-wider`,
+                    sortable
+                      ? "cursor-pointer select-none text-zinc-500 transition-colors hover:text-zinc-300"
+                      : "text-zinc-500",
+                    sortable === sortKey ? "text-zinc-200" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
                 >
                   {label}
+                  {sortable === sortKey && arrow}
                 </th>
               ))}
             </tr>
