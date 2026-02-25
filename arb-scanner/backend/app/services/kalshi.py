@@ -13,6 +13,7 @@ from app.config import settings
 from app.database import get_db
 from app.models.market import NormalizedMarket
 from app.services.kalshi_auth import get_auth_headers
+from app.services.sports_matcher import KALSHI_LEAGUE_MAP
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,7 @@ def _extract_ticker_date(event_ticker: str) -> datetime | None:
     m = _TICKER_DATE_RE.match(suffix)
     if not m:
         return None
-    day_str, mon_str, year_str = m.groups()
+    year_str, mon_str, day_str = m.groups()
     month = _MONTH_MAP.get(mon_str)
     if not month:
         return None
@@ -165,6 +166,12 @@ def _normalize(raw: dict, series_data: dict[str, dict]) -> NormalizedMarket | No
 
         event_ticker = (raw.get("event_ticker") or "").strip()
 
+        # Filter out multi-game parlays — no Polymarket equivalent and they
+        # can never produce valid cross-platform moneyline matches.
+        if event_ticker.upper().startswith("KXMVESPORTSMULTIGAME"):
+            logger.debug("Kalshi %s: skipping multi-game parlay (%s)", ticker, event_ticker)
+            return None
+
         # Kalshi prices are in cents (0-100) — normalize to 0.0-1.0
         # Use last_price (what Kalshi shows on their site) rather than yes_ask,
         # which is the ask side of the order book and wildly inflated in illiquid markets.
@@ -250,6 +257,7 @@ def _normalize(raw: dict, series_data: dict[str, dict]) -> NormalizedMarket | No
             url=url,
             raw_data=raw,
             last_updated=datetime.now(timezone.utc),
+            event_ticker=event_ticker,
         )
     except Exception as exc:
         logger.warning("Failed to normalize Kalshi market %s: %s", raw.get("ticker"), exc)
@@ -328,8 +336,13 @@ async def fetch_kalshi_markets() -> list[NormalizedMarket]:
                 if not market:
                     continue
 
-                # Skip low-volume markets (expiry filtering is done server-side)
-                if market.volume < settings.MIN_MATCH_VOLUME:
+                # Apply per-market volume floor:
+                # Sports markets (event_ticker series in KALSHI_LEAGUE_MAP) use MIN_SPORTS_VOLUME.
+                # All other markets use MIN_MATCH_VOLUME.
+                series_prefix = market.event_ticker.split("-")[0].upper() if market.event_ticker else ""
+                is_sports = series_prefix in KALSHI_LEAGUE_MAP
+                volume_floor = settings.MIN_SPORTS_VOLUME if is_sports else settings.MIN_MATCH_VOLUME
+                if market.volume < volume_floor:
                     low_volume_filtered += 1
                     continue
 
