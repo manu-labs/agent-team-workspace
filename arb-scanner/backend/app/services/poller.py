@@ -164,11 +164,12 @@ async def _run_cycle() -> None:
     """Execute one full discovery cycle under a lock (prevents concurrent runs).
 
     Steps:
-      1. Ingest markets from Polymarket and Kalshi
+      1.   Ingest markets from Polymarket and Kalshi
       1.5. Diff-based cleanup — remove markets/matches no longer returned by either API
-      2. Embed new/changed markets (delta embed — skips already-embedded)
-      3. Run matcher on all pairs (skips already-confirmed pairs)
-      4. Sync WS subscriptions — subscribe new matches, unsubscribe removed ones
+      1.6. Sports-only category filter — remove matches whose Kalshi market is not "Sports"
+      2.   Embed new/changed markets (delta embed — skips already-embedded)
+      3.   Run matcher on all pairs (skips already-confirmed pairs)
+      4.   Sync WS subscriptions — subscribe new matches, unsubscribe removed ones
     """
     global _last_run
 
@@ -248,6 +249,37 @@ async def _run_cycle() -> None:
                 poly_fetched, kalshi_fetched,
             )
 
+        # --- Step 1.6: Sports-only category filter ---
+        # Purge any matches whose Kalshi market is not in the "Sports" category.
+        # Catches old non-sports LLM matches (politics, crypto, weather) from before
+        # the Sports-Only Refactor (Epic #288). No-op once the DB is clean.
+        # Uses Kalshi's native category field — all sports/esports series use "Sports".
+        count_cur = await db.execute(
+            """SELECT COUNT(*) FROM matches m
+               JOIN markets km ON m.kalshi_id = km.id
+               WHERE COALESCE(km.category, '') != 'Sports'"""
+        )
+        row = await count_cur.fetchone()
+        non_sports_count = row[0] if row else 0
+
+        if non_sports_count > 0:
+            await db.execute(
+                """DELETE FROM price_history WHERE match_id IN (
+                    SELECT m.id FROM matches m
+                    JOIN markets km ON m.kalshi_id = km.id
+                    WHERE COALESCE(km.category, '') != 'Sports'
+                )"""
+            )
+            await db.execute(
+                """DELETE FROM matches WHERE id IN (
+                    SELECT m.id FROM matches m
+                    JOIN markets km ON m.kalshi_id = km.id
+                    WHERE COALESCE(km.category, '') != 'Sports'
+                )"""
+            )
+            await db.commit()
+            logger.info("Sports-only filter: removed %d non-sports matches", non_sports_count)
+
         # --- Step 2: Embed new/changed markets ---
         embed_count = await embed_new_markets(db)
         logger.info("Embed delta: %d markets embedded", embed_count)
@@ -299,10 +331,10 @@ async def _run_cycle() -> None:
                                        question, last_updated)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(polymarket_id, kalshi_id) DO UPDATE SET
-                       confidence = excluded.confidence,
+                       confidence        = excluded.confidence,
                        polymarket_volume = excluded.polymarket_volume,
-                       kalshi_volume = excluded.kalshi_volume,
-                       last_updated = excluded.last_updated""",
+                       kalshi_volume     = excluded.kalshi_volume,
+                       last_updated      = excluded.last_updated""",
                 (m["polymarket_id"], m["kalshi_id"], m["confidence"],
                  sd["raw_spread"], sd["fee_adjusted_spread"],
                  m["polymarket_yes"], m["kalshi_yes"],

@@ -5,11 +5,15 @@ slugs/tickers, enabling O(1) exact matching without embeddings or LLM calls.
 
 Polymarket slug format:  {league}-{team1}-{team2}-{YYYY-MM-DD}[-suffix]
 Kalshi event_ticker:     KX{LEAGUE}GAME-{YY}{MMM}{DD}[{HHMM}]{TEAMS}
+Kalshi market ticker:    {event_ticker}-{YES_TEAM}
 
   Where [HHMM] is an optional 4-digit 24-hour game start time (used by AHL,
   KHL, FIBA, ACB, and some other international series).  TEAMS is the
   concatenation of both team codes with NO delimiter — length varies from
   4 chars (2+2, e.g. "BCNY" for TGL golf) to 12+ chars (6+6 esports).
+
+  The YES_TEAM suffix on the market ticker encodes which team YES resolves
+  for (e.g. "KXWTAMATCH-26FEB25BARTOW-TOW" → YES = Townsend wins).
 
 Matching approach:
   1. Parse Polymarket slug (always unambiguous — hyphen-separated) to get
@@ -18,7 +22,10 @@ Matching approach:
      is the raw unsplit concatenation of both team codes.
   3. Match by checking if teams_str == team1+team2 OR team2+team1
      (after TEAM_ALIASES resolution).
-  4. Canonical key {league}:{team_a}-{team_b}:{YYYY-MM-DD} is used only
+  4. For each matched game, run check_sports_orientation() to select only
+     the ALIGNED Kalshi market (YES side matches team1). Inverted markets
+     are skipped — no match created.
+  5. Canonical key {league}:{team_a}-{team_b}:{YYYY-MM-DD} is used only
      for logging/reasoning (teams sorted for readability).
 """
 
@@ -224,7 +231,81 @@ def canonical_sports_key(league: str, team1: str, team2: str, date: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Deterministic matcher
+# Orientation check (Part 1)
+# ---------------------------------------------------------------------------
+
+def _teams_match(suffix: str, poly_team: str) -> bool:
+    """Bidirectional prefix match between a Kalshi YES suffix and a Poly team code.
+
+    Handles:
+    - Exact match:         "okc" vs "okc"     → True
+    - Suffix truncated:    "tow" vs "townsen"  → True  (Kalshi truncated Townsend)
+    - Poly truncated:      "bartunk" vs "bar"  → True  (Kalshi truncated Bartunkova)
+    - Alias resolved:      "uta" vs "utah"     → True  (TEAM_ALIASES: utah→uta)
+    - Esports digit:       "c9" vs "c9"        → True  (min 2 chars both, exact)
+    - No match:            "tow" vs "bartunk"  → False
+    - Too short (< 2):     "c" vs "col"        → False (ambiguous)
+    """
+    if not suffix or not poly_team:
+        return False
+    s = suffix.lower()
+    p = TEAM_ALIASES.get(poly_team.lower(), poly_team.lower())
+    if min(len(s), len(p)) < 2:
+        return False
+    return s.startswith(p) or p.startswith(s)
+
+
+def check_sports_orientation(
+    kalshi_market_id: str,
+    poly_team1: str,
+    poly_team2: str,
+) -> str:
+    """Determine if a Kalshi market's YES side aligns with the Poly market's YES side.
+
+    Kalshi creates two markets per game (one per team), e.g.:
+      KXWTAMATCH-26FEB25BARTOW-BAR  → YES = Bartunkova wins
+      KXWTAMATCH-26FEB25BARTOW-TOW  → YES = Townsend wins
+
+    Polymarket has one market per game where team1 = YES side.
+
+    Args:
+        kalshi_market_id: Full Kalshi market ID, e.g. "kalshi:KXWTAMATCH-26FEB25BARTOW-TOW"
+        poly_team1: Poly slug team1 (YES side), e.g. "bartunk"
+        poly_team2: Poly slug team2 (NO side), e.g. "tow"
+
+    Returns:
+        "aligned"  — Kalshi YES resolves for team1 (same as Poly YES). Keep this match.
+        "inverted" — Kalshi YES resolves for team2 (opposite of Poly YES). Reject this match.
+        "unknown"  — Cannot determine (non-sports, parse failure, ambiguous suffix).
+    """
+    if not kalshi_market_id or not kalshi_market_id.startswith("kalshi:"):
+        return "unknown"
+
+    full_ticker = kalshi_market_id[len("kalshi:"):]  # e.g. "KXWTAMATCH-26FEB25BARTOW-TOW"
+
+    # Market ticker has format {event_ticker}-{YES_TEAM} — need at least 2 hyphens
+    if full_ticker.count("-") < 2:
+        return "unknown"
+
+    # Split off YES team suffix (last segment)
+    event_ticker, yes_suffix = full_ticker.rsplit("-", 1)
+
+    # Verify the event_ticker portion is a parseable sports ticker
+    if not parse_kalshi_event_ticker(event_ticker):
+        return "unknown"
+
+    yes_suffix = yes_suffix.lower()
+
+    if _teams_match(yes_suffix, poly_team1):
+        return "aligned"
+    if _teams_match(yes_suffix, poly_team2):
+        return "inverted"
+
+    return "unknown"
+
+
+# ---------------------------------------------------------------------------
+# Deterministic matcher (Pass 0)
 # ---------------------------------------------------------------------------
 
 def match_sports_deterministic(
@@ -239,22 +320,27 @@ def match_sports_deterministic(
 
     Matching strategy:
       1. Build a Kalshi lookup keyed by (league, date, teams_str_lower).
+         Stores ALL market IDs per game (Kalshi has two per game: one per team).
       2. For each Polymarket moneyline market, resolve team aliases and check
          both orderings (team1+team2, team2+team1) against the Kalshi lookup.
+      3. Run check_sports_orientation() on each candidate Kalshi market.
+         ALIGNED markets are kept. UNKNOWN markets are kept as fallback.
+         INVERTED-only games are skipped entirely — no match created.
 
-    Restricts Polymarket side to moneyline markets (binary win/loss).
     Zero embeddings, zero LLM calls. Returns confidence=1.0 for all matches.
+    Inverted matches are rejected (not returned) so no price swapping is needed.
 
     Args:
         poly_markets: List of NormalizedMarket or dicts from Polymarket
         kalshi_markets: List of NormalizedMarket or dicts from Kalshi
 
     Returns:
-        List of {poly_id, kalshi_id, confidence, reasoning} dicts
+        List of {poly_id, kalshi_id, confidence, reasoning} dicts.
+        Only ALIGNED or UNKNOWN markets are returned — INVERTED are skipped.
     """
-    # Build Kalshi lookup: (league, date_str, teams_str) → kalshi_id
-    # teams_str is the full lowercase concatenation of both team codes
-    kalshi_by_key: dict[tuple[str, str, str], str] = {}
+    # Build Kalshi lookup: (league, date_str, teams_str) → [kalshi_id, ...]
+    # Store ALL market IDs per game (two per game: one per team)
+    kalshi_by_key: dict[tuple[str, str, str], list[str]] = {}
     kalshi_parseable = 0
     for m in kalshi_markets:
         if isinstance(m, dict):
@@ -269,9 +355,8 @@ def match_sports_deterministic(
         if parsed:
             league, teams_str, date_str = parsed
             key = (league, date_str, teams_str)
-            if key not in kalshi_by_key:
-                kalshi_by_key[key] = mid
-                kalshi_parseable += 1
+            kalshi_by_key.setdefault(key, []).append(mid)
+            kalshi_parseable += 1
 
     matched: list[dict] = []
     poly_parseable = 0
@@ -301,21 +386,47 @@ def match_sports_deterministic(
         t2 = TEAM_ALIASES.get(team2.lower(), team2.lower())
 
         # Try both team orderings — Poly and Kalshi may list teams differently
-        kalshi_id = None
+        kalshi_ids: list[str] = []
         for teams_str in (t1 + t2, t2 + t1):
-            kid = kalshi_by_key.get((league, date_str, teams_str))
-            if kid:
-                kalshi_id = kid
+            ids = kalshi_by_key.get((league, date_str, teams_str))
+            if ids:
+                kalshi_ids = ids
                 break
 
-        if kalshi_id:
-            key_str = canonical_sports_key(league, team1, team2, date_str)
-            matched.append({
-                "poly_id": mid,
-                "kalshi_id": kalshi_id,
-                "confidence": 1.0,
-                "reasoning": f"Deterministic slug match: {key_str}",
-            })
+        if not kalshi_ids:
+            continue
+
+        # Select best Kalshi market via orientation check.
+        # ALIGNED: YES sides match — use this market.
+        # UNKNOWN: can't determine orientation — pass through as fallback.
+        # INVERTED: YES sides are opposite — skip this game entirely (no match created).
+        best_id: str | None = None
+        unknown_candidate: str | None = None
+
+        for kid in kalshi_ids:
+            orientation = check_sports_orientation(kid, team1, team2)
+            if orientation == "aligned":
+                best_id = kid
+                break  # prefer aligned, stop searching
+            elif orientation == "unknown" and unknown_candidate is None:
+                unknown_candidate = kid  # pass through — non-sports or ambiguous
+
+        if best_id is None:
+            if unknown_candidate:
+                best_id = unknown_candidate
+            else:
+                # All markets are inverted — skip this game entirely
+                key_str = canonical_sports_key(league, team1, team2, date_str)
+                logger.info("Skipping inverted match: %s", key_str)
+                continue
+
+        key_str = canonical_sports_key(league, team1, team2, date_str)
+        matched.append({
+            "poly_id": mid,
+            "kalshi_id": best_id,
+            "confidence": 1.0,
+            "reasoning": f"Deterministic slug match: {key_str}",
+        })
 
     logger.info(
         "Sports slug Pass 0: %d poly parseable, %d kalshi parseable -> %d deterministic matches",
@@ -324,5 +435,3 @@ def match_sports_deterministic(
         len(matched),
     )
     return matched
-
-

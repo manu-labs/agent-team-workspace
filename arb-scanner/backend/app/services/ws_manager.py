@@ -218,18 +218,18 @@ async def _update_market_and_matches(market_id: str, yes_price: float, no_price:
             now = datetime.now(timezone.utc).isoformat()
             now_ts = time.monotonic()
 
-            # 1. Update market prices only — leave volume untouched
+            # 1. Update market raw prices only — leave volume untouched
             await db.execute(
                 "UPDATE markets SET yes_price = ?, no_price = ?, last_updated = ? WHERE id = ?",
                 (yes_price, no_price, now, market_id),
             )
 
-            # 2. Find all matches involving this market and recalculate spreads
+            # 2. Find all matches involving this market and recalculate spreads.
             cursor = await db.execute(
                 """SELECT
                     m.id,
                     pm.yes_price AS poly_yes,
-                    km.yes_price AS kalshi_yes,
+                    km.yes_price AS kalshi_yes_raw,
                     pm.volume    AS poly_vol,
                     km.volume    AS kalshi_vol
                    FROM matches m
@@ -242,7 +242,8 @@ async def _update_market_and_matches(market_id: str, yes_price: float, no_price:
 
             for match in affected:
                 poly_yes = match["poly_yes"] or 0.0
-                kalshi_yes = match["kalshi_yes"] or 0.0
+                kalshi_yes = match["kalshi_yes_raw"] or 0.0
+
                 if not poly_yes or not kalshi_yes:
                     continue
 

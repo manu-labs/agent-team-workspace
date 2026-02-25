@@ -25,7 +25,11 @@ import httpx
 from app.config import settings
 from app.database import get_db
 from app.services.embeddings import find_embedding_candidates
-from app.services.sports_matcher import match_sports_deterministic
+from app.services.sports_matcher import (
+    check_sports_orientation,
+    match_sports_deterministic,
+    parse_poly_slug,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -318,9 +322,10 @@ def _market_to_dict(market) -> dict:
 async def _pass2_confirm(candidate: dict, markets_by_id: dict) -> dict | None:
     """Pass 2: Confirm a candidate pair using full market details.
 
-    Only confirms matches where both contracts ask the same question AND
-    YES means the same thing on both platforms. Rejects inverted/opposite-side
-    contracts instead of flipping prices.
+    Returns a match dict if the LLM confirms the pair is the same market
+    with aligned YES/NO orientation. Returns None if rejected (different
+    questions or inverted orientation — inverted sports pairs are rejected
+    rather than flagged, per the simplified scope).
     """
     poly_id = candidate.get("poly_id", "")
     kalshi_id = candidate.get("kalshi_id", "")
@@ -334,7 +339,7 @@ async def _pass2_confirm(candidate: dict, markets_by_id: dict) -> dict | None:
     if not poly or not kalshi:
         return None
 
-    prompt = f"""Do these two prediction markets ask the EXACT SAME question with the SAME YES/NO orientation?
+    prompt = f"""Do these two prediction markets ask the EXACT SAME underlying question?
 
 Polymarket:
   Question: {poly.get('question', '')}
@@ -345,22 +350,30 @@ Kalshi:
   Category: {kalshi.get('category', '')}
 
 RULES:
-1. Both contracts must resolve YES under the same conditions and NO under the same conditions.
-2. Ignore minor wording differences if the underlying question is identical.
+1. CONFIRMED + not inverted: Both contracts resolve YES under the same conditions.
+2. CONFIRMED + inverted: Same underlying event, but YES/NO is flipped between platforms.
+   This happens when one platform asks "Will Team A win?" and the other asks "Will Team B win?"
+   for the same game, or one uses "Will X happen?" and the other "Will X NOT happen?"
+3. REJECTED: Different underlying events, different resolution criteria, or unrelated questions.
 
-Examples — CONFIRMED:
-  - "Will Team A win?" / "Will Team A win?" → same question, same YES
-  - "Bitcoin above $100K by March 31?" / "Bitcoin above $100K by March 31?" → same
+Examples — CONFIRMED not inverted:
+  - "Will OKC win?" / "Will OKC win?" → same YES side
+  - "Bitcoin above $100K by March?" / "Bitcoin above $100K by March?" → same
+
+Examples — CONFIRMED inverted (same event, opposite YES sides):
+  - "Will Bartunkova win?" (Poly YES=Bartunkova) / "Will Townsend win?" (Kalshi YES=Townsend)
+  - "Will Team A win?" / "Will Team B win?" → same game, opposite sides
+  - "Will X happen?" / "Will X NOT happen?" → same event, inverted framing
 
 Examples — REJECTED:
-  - "Will Player A win?" / "Will Player B win?" → opposite sides of same event
-  - "Will X happen?" / "Will X NOT happen?" → inverted framing
+  - "Will X win?" / "Will Y win?" where X and Y are unrelated events
   - "XRP reach $1.80" / "XRP trimmed mean above $1.80" → different resolution criteria
+  - "Annual inflation 2.3%" / "Trump signs EO" → completely different events
 
 Return JSON only:
-{{"confirmed": true/false, "reasoning": "brief explanation"}}
+{{"confirmed": true/false, "inverted": true/false, "reasoning": "brief explanation"}}
 """
-    system = "You are a prediction market analyst. Confirm or reject market matches. Only confirm if both contracts have identical resolution criteria and YES/NO orientation. Return valid JSON only."
+    system = "You are a prediction market analyst. Confirm matches and detect YES/NO inversions. Return valid JSON only."
 
     response = await _call_groq(prompt, system)
     if not response:
@@ -386,6 +399,17 @@ Return JSON only:
             return None
 
     if result.get("confirmed"):
+        llm_inverted = bool(result.get("inverted", False))
+
+        if llm_inverted:
+            # Inverted matches are rejected — same event but wrong YES/NO orientation.
+            # We only keep same-direction matches.
+            logger.info(
+                "Rejecting inverted LLM match: %s <-> %s. Reason: %s",
+                poly_id, kalshi_id, result.get("reasoning", ""),
+            )
+            return None
+
         return {
             "polymarket_id": poly_id,
             "kalshi_id": kalshi_id,
@@ -396,7 +420,7 @@ Return JSON only:
         }
     else:
         logger.info(
-            "Rejected match (not same orientation): %s <-> %s. Reason: %s",
+            "Rejected match: %s <-> %s. Reason: %s",
             poly_id, kalshi_id, result.get("reasoning", ""),
         )
         return None
@@ -409,12 +433,14 @@ async def match_markets(
     """Run multi-pass matching on the provided market lists.
 
     Pass 0:  Deterministic slug matching — exact canonical key match (confidence=1.0,
-             bypass LLM entirely).
+             bypass LLM entirely). Only ALIGNED Kalshi markets returned; inverted skipped.
     Pass 0b: Sports keyword candidates (confidence=0.85, LLM confirmed).
     Pass 1:  Embedding cosine similarity (zero LLM calls).
     Pass 1.5: Date pre-filter — skip pairs with mismatched end_dates.
     Pass 1.6: Numeric threshold pre-filter — skip mismatched dollar/unit values.
     Pass 2:  Groq LLM confirmation (capped at _MAX_CONFIRMATIONS_PER_CYCLE).
+             Sports matches where LLM detects inversion are rejected.
+             Secondary deterministic orientation check applied to all sports LLM matches.
 
     Args:
         polymarket_markets: List of NormalizedMarket or dicts from Polymarket
@@ -446,8 +472,7 @@ async def match_markets(
         all_markets[d["id"]] = d
 
     # Pass 0: Deterministic slug matching (confidence=1.0, bypass LLM entirely)
-    # These are exact matches — no LLM confirmation needed. Add directly to results
-    # and exclude from all subsequent candidate passes to avoid double-matching.
+    # Only ALIGNED Kalshi markets are returned — inverted are skipped at source.
     det_raw = match_sports_deterministic(polymarket_markets, kalshi_markets)
     det_confirmed: list[dict] = []
     deterministic_pairs: set[tuple[str, str]] = set()
@@ -463,6 +488,7 @@ async def match_markets(
 
         poly_m = all_markets.get(poly_id, {})
         kalshi_m = all_markets.get(kalshi_id, {})
+
         det_confirmed.append({
             "polymarket_id": poly_id,
             "kalshi_id": kalshi_id,
@@ -556,6 +582,21 @@ async def match_markets(
             result = await _pass2_confirm(cand, all_markets)
             llm_calls += 1
             if result:
+                # For sports LLM matches: run deterministic orientation check as
+                # a secondary validation. If it says inverted, reject the match
+                # (trust the deterministic check over LLM for sports orientation).
+                poly_slug = poly_market.get("event_slug", "")
+                parsed = parse_poly_slug(poly_slug)
+                if parsed:
+                    _, team1, team2, _ = parsed
+                    orientation = check_sports_orientation(kalshi_id, team1, team2)
+                    if orientation == "inverted":
+                        logger.info(
+                            "Orientation check rejected inverted LLM match: %s <-> %s",
+                            poly_id, kalshi_id,
+                        )
+                        _rejected_keys.add(key)
+                        continue  # reject — don't add to confirmed
                 confirmed.append(result)
             else:
                 _rejected_keys.add(key)
