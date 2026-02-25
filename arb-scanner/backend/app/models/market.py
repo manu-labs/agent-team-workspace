@@ -16,6 +16,10 @@ class NormalizedMarket(BaseModel):
     clob_token_ids: str = ""
     raw_data: dict = {}
     last_updated: datetime
+    # Sports matching fields — populated by normalizers, not persisted to DB
+    event_slug: str = ""          # Polymarket event slug (for deterministic sports matching)
+    event_ticker: str = ""        # Kalshi event_ticker (for deterministic sports matching)
+    sports_market_type: str = ""  # Polymarket sportsMarketType (e.g. "moneyline")
 
 
 class MarketResponse(NormalizedMarket):
