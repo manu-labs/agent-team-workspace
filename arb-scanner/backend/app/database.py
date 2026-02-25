@@ -52,6 +52,7 @@ async def init_db():
             kalshi_volume REAL,
             question TEXT,
             last_updated TEXT NOT NULL,
+            kalshi_inverted INTEGER DEFAULT 0,
             UNIQUE(polymarket_id, kalshi_id)
         );
 
@@ -88,6 +89,7 @@ async def init_db():
         "ALTER TABLE markets ADD COLUMN event_slug TEXT DEFAULT ''",
         "ALTER TABLE markets ADD COLUMN event_ticker TEXT DEFAULT ''",
         "ALTER TABLE markets ADD COLUMN sports_market_type TEXT DEFAULT ''",
+        "ALTER TABLE matches ADD COLUMN kalshi_inverted INTEGER DEFAULT 0",
     ]:
         try:
             await db.execute(migration)
