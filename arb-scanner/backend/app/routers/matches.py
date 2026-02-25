@@ -47,6 +47,7 @@ def _serialize_match(row: dict) -> dict:
         "kalshi_fee": spread_info["kalshi_fee"],
         "profitable": spread_info["profitable"],
         "category": row.get("category") or "",
+        "kalshi_category": row.get("kalshi_category") or "",
     }
 
 
@@ -72,6 +73,7 @@ async def list_matches(
     min_volume: float = Query(0, ge=0, description="Minimum volume (min of both platforms)"),
     ending_within_days: int = Query(0, ge=0, description="Only show markets ending within N days (0 = no filter)"),
     sort_by: str = Query("volume", description="Sort by: spread, volume, confidence, or end_date"),
+    category: str = Query("Sports", description="Filter by Kalshi market category (default: Sports). Pass empty string for all."),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
 ):
@@ -94,6 +96,10 @@ async def list_matches(
         params.append(cutoff)
         params.append(datetime.now(timezone.utc).isoformat())
 
+    if category:
+        where_clauses.append("km.category = ?")
+        params.append(category)
+
     where_sql = " AND ".join(where_clauses)
     params.extend([limit, skip])
 
@@ -109,7 +115,8 @@ async def list_matches(
             pm.no_price AS polymarket_no,
             km.question AS kalshi_question, km.url AS kalshi_url,
             km.end_date AS kalshi_end_date,
-            km.no_price AS kalshi_no
+            km.no_price AS kalshi_no,
+            km.category AS kalshi_category
         FROM matches m
         LEFT JOIN markets pm ON m.polymarket_id = pm.id
         LEFT JOIN markets km ON m.kalshi_id = km.id
@@ -138,7 +145,8 @@ async def get_match(match_id: int):
             pm.no_price AS polymarket_no,
             km.question AS kalshi_question, km.url AS kalshi_url,
             km.end_date AS kalshi_end_date,
-            km.no_price AS kalshi_no
+            km.no_price AS kalshi_no,
+            km.category AS kalshi_category
         FROM matches m
         LEFT JOIN markets pm ON m.polymarket_id = pm.id
         LEFT JOIN markets km ON m.kalshi_id = km.id
