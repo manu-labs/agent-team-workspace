@@ -31,7 +31,7 @@ Matching approach:
 
 import logging
 import re
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +52,8 @@ POLY_LEAGUE_MAP: dict[str, str] = {
     "cs2": "cs2",
     "atp": "atp",
     "wta": "wta",
+    "val": "valorant",
+    "ncaamb": "ncaab",
 }
 
 # Kalshi series prefix → canonical league name
@@ -69,6 +71,8 @@ KALSHI_LEAGUE_MAP: dict[str, str] = {
     "KXATPMATCH": "atp",      # alternative series name used for some ATP events
     "KXWTAGAME": "wta",
     "KXWTAMATCH": "wta",      # actual live series name (KXWTAGAME was incorrect in v1)
+    "KXVALORANTGAME": "valorant",
+    "KXNCAAMBGAME": "ncaab",
 }
 
 # ---------------------------------------------------------------------------
@@ -323,7 +327,10 @@ def match_sports_deterministic(
          Stores ALL market IDs per game (Kalshi has two per game: one per team).
       2. For each Polymarket moneyline market, resolve team aliases and check
          both orderings (team1+team2, team2+team1) against the Kalshi lookup.
-      3. Run check_sports_orientation() on each candidate Kalshi market.
+      3. If no exact date match, try ±1 day fallback to handle timezone edge
+         cases (late-night US games may land on different dates on Kalshi vs
+         Polymarket due to UTC vs local time).
+      4. Run check_sports_orientation() on each candidate Kalshi market.
          ALIGNED markets are kept. UNKNOWN markets are kept as fallback.
          INVERTED-only games are skipped entirely — no match created.
 
@@ -392,6 +399,28 @@ def match_sports_deterministic(
             if ids:
                 kalshi_ids = ids
                 break
+
+        if not kalshi_ids:
+            # ±1 day fallback — late-night US games may have different dates on
+            # Kalshi (local time) vs Polymarket (UTC)
+            try:
+                game_date = date.fromisoformat(date_str)
+                for delta in (-1, 1):
+                    adj_date = (game_date + timedelta(days=delta)).isoformat()
+                    for teams_str_fb in (t1 + t2, t2 + t1):
+                        ids = kalshi_by_key.get((league, adj_date, teams_str_fb))
+                        if ids:
+                            kalshi_ids = ids
+                            logger.info(
+                                "Date tolerance fallback (%+d day): %s",
+                                delta,
+                                canonical_sports_key(league, team1, team2, date_str),
+                            )
+                            break
+                    if kalshi_ids:
+                        break
+            except ValueError:
+                pass
 
         if not kalshi_ids:
             continue
