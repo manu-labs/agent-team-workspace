@@ -441,6 +441,8 @@ async def match_markets(
     Pass 2:  Groq LLM confirmation (capped at _MAX_CONFIRMATIONS_PER_CYCLE).
              Sports matches where LLM detects inversion are rejected.
              Secondary deterministic orientation check applied to all sports LLM matches.
+             Price-based inversion detection applied when orientation is "unknown"
+             (handles compound surnames / ambiguous ticker encodings).
 
     Args:
         polymarket_markets: List of NormalizedMarket or dicts from Polymarket
@@ -597,6 +599,28 @@ async def match_markets(
                         )
                         _rejected_keys.add(key)
                         continue  # reject — don't add to confirmed
+                    elif orientation == "unknown":
+                        # Price-based inversion detection — when we can't determine
+                        # orientation from team codes (compound surnames, ambiguous
+                        # tickers), check if prices suggest the match is inverted.
+                        # If the inverted interpretation (poly_yes ≈ 1 - kalshi_yes)
+                        # fits the data better than the aligned interpretation
+                        # (poly_yes ≈ kalshi_yes), and the gap is large enough to be
+                        # non-noise, reject as probable inversion.
+                        p_yes = float(poly_market.get("yes_price", 0))
+                        k_yes = float(kalshi_market.get("yes_price", 0))
+                        aligned_diff = abs(p_yes - k_yes)
+                        inverted_diff = abs(p_yes - (1 - k_yes))
+                        if aligned_diff > 0.20 and inverted_diff < aligned_diff:
+                            logger.info(
+                                "Price-based inversion detected (unknown orientation): "
+                                "%s <-> %s (poly_yes=%.2f, kalshi_yes=%.2f, "
+                                "aligned_diff=%.2f, inverted_diff=%.2f)",
+                                poly_id, kalshi_id, p_yes, k_yes,
+                                aligned_diff, inverted_diff,
+                            )
+                            _rejected_keys.add(key)
+                            continue
                 confirmed.append(result)
             else:
                 _rejected_keys.add(key)
