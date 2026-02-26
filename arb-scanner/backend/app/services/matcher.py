@@ -316,6 +316,7 @@ def _market_to_dict(market) -> dict:
         "event_slug": getattr(market, "event_slug", ""),
         "event_ticker": getattr(market, "event_ticker", ""),
         "sports_market_type": getattr(market, "sports_market_type", ""),
+        "yes_sub_title": getattr(market, "yes_sub_title", ""),
     }
 
 
@@ -344,10 +345,12 @@ async def _pass2_confirm(candidate: dict, markets_by_id: dict) -> dict | None:
 Polymarket:
   Question: {poly.get('question', '')}
   Category: {poly.get('category', '')}
+  YES means: {poly.get('yes_sub_title', '') or 'N/A'}
 
 Kalshi:
   Question: {kalshi.get('question', '')}
   Category: {kalshi.get('category', '')}
+  YES means: {kalshi.get('yes_sub_title', '') or 'N/A'}
 
 RULES:
 1. CONFIRMED + not inverted: Both contracts resolve YES under the same conditions.

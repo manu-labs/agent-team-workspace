@@ -149,6 +149,19 @@ class TestKalshiNormalize:
         assert result is not None
         assert result.end_date is not None
 
+    def test_yes_sub_title_extracted(self):
+        raw = self._make_raw(yes_sub_title="Alejandro Davidovich Fokina")
+        result = kalshi_normalize(raw, {})
+        assert result is not None
+        assert result.yes_sub_title == "Alejandro Davidovich Fokina"
+
+    def test_yes_sub_title_empty_when_missing(self):
+        # Raw market has no yes_sub_title key — field should default to ""
+        raw = self._make_raw()
+        result = kalshi_normalize(raw, {})
+        assert result is not None
+        assert result.yes_sub_title == ""
+
 
 # ---------------------------------------------------------------------------
 # Polymarket: _normalize
