@@ -20,6 +20,7 @@ class NormalizedMarket(BaseModel):
     event_slug: str = ""          # Polymarket event slug (for deterministic sports matching)
     event_ticker: str = ""        # Kalshi event_ticker (for deterministic sports matching)
     sports_market_type: str = ""  # Polymarket sportsMarketType (e.g. "moneyline")
+    yes_sub_title: str = ""       # Kalshi: what YES resolves to (e.g., "Mattia Bellucci")
 
 
 class MarketResponse(NormalizedMarket):
