@@ -21,7 +21,8 @@ _PLATFORM = "polymarket"
 
 # Skip game/map/set-level sub-markets — Kalshi only has series-level contracts,
 # so these can never produce valid cross-platform matches.
-# Matches: "Game 1 Winner", "Map 2 Winner", "Set 3 Winner", "Round 1 Winner", etc.
+# Matches: "Game 1 Winner", "Map 2 Winner", "Set 3 Winner", "Round 1 Winner",
+# "Set 1: Arango vs Bouzkova", etc.
 _GAME_LEVEL_RE = re.compile(r"^(Game|Map|Set|Round)\s+\d+", re.IGNORECASE)
 
 
@@ -38,11 +39,21 @@ def _normalize(raw: dict) -> NormalizedMarket | None:
 
         # Skip game-level sub-markets (Game 1, Map 2, Set 3, etc.)
         # These are sub-events in esports/sports that Kalshi doesn't have.
+        # Check groupItemTitle first, then fall back to checking the question field —
+        # some markets omit groupItemTitle but encode set/game info in the question
+        # (e.g. "Set 1: Arango vs Bouzkova" with an empty groupItemTitle).
         group_title = (raw.get("groupItemTitle") or "").strip()
         if group_title and _GAME_LEVEL_RE.match(group_title):
             logger.debug(
                 "Polymarket %s: skipping game-level sub-market (groupItemTitle=%s)",
                 market_id, group_title,
+            )
+            return None
+
+        if _GAME_LEVEL_RE.match(question):
+            logger.debug(
+                "Polymarket %s: skipping game-level market (question=%s)",
+                market_id, question,
             )
             return None
 
