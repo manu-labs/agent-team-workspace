@@ -258,6 +258,7 @@ def _normalize(raw: dict, series_data: dict[str, dict]) -> NormalizedMarket | No
             raw_data=raw,
             last_updated=datetime.now(timezone.utc),
             event_ticker=event_ticker,
+            yes_sub_title=yes_sub,
         )
     except Exception as exc:
         logger.warning("Failed to normalize Kalshi market %s: %s", raw.get("ticker"), exc)
