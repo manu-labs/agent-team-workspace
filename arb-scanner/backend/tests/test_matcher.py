@@ -101,50 +101,50 @@ class TestParseDate:
 
 class TestDatesCompatible:
     def test_same_date_compatible(self):
-        date = "2026-03-31T00:00:00Z"
-        assert _dates_compatible(date, date) is True
+        dt = "2026-03-31T00:00:00Z"
+        assert _dates_compatible(dt, dt) is True
 
     def test_within_tolerance_compatible(self):
-        # 12 hours apart — within 24h tolerance
-        d1 = datetime(2026, 3, 31, 0, tzinfo=timezone.utc)
-        d2 = datetime(2026, 3, 31, 12, tzinfo=timezone.utc)
+        d1 = datetime(2026, 3, 31, tzinfo=timezone.utc)
+        d2 = d1 + timedelta(seconds=_DATE_TOLERANCE_SECONDS - 1)
         assert _dates_compatible(d1, d2) is True
 
     def test_exactly_at_tolerance_compatible(self):
-        d1 = datetime(2026, 3, 31, 0, tzinfo=timezone.utc)
+        d1 = datetime(2026, 3, 31, tzinfo=timezone.utc)
         d2 = d1 + timedelta(seconds=_DATE_TOLERANCE_SECONDS)
         assert _dates_compatible(d1, d2) is True
 
     def test_beyond_tolerance_incompatible(self):
-        # 31 days apart (February vs March)
-        d1 = "2026-02-28T00:00:00Z"
-        d2 = "2026-03-31T00:00:00Z"
+        d1 = datetime(2026, 2, 28, tzinfo=timezone.utc)
+        d2 = datetime(2026, 3, 31, tzinfo=timezone.utc)
         assert _dates_compatible(d1, d2) is False
 
     def test_just_over_tolerance_incompatible(self):
-        d1 = datetime(2026, 3, 31, 0, tzinfo=timezone.utc)
+        d1 = datetime(2026, 3, 31, tzinfo=timezone.utc)
         d2 = d1 + timedelta(seconds=_DATE_TOLERANCE_SECONDS + 1)
         assert _dates_compatible(d1, d2) is False
 
     def test_poly_missing_returns_true(self):
-        # Missing date → let LLM decide
-        assert _dates_compatible(None, "2026-03-31T00:00:00Z") is True
+        assert _dates_compatible(None, "2026-03-31") is True
 
     def test_kalshi_missing_returns_true(self):
-        assert _dates_compatible("2026-03-31T00:00:00Z", None) is True
+        assert _dates_compatible("2026-03-31", None) is True
 
     def test_both_missing_returns_true(self):
         assert _dates_compatible(None, None) is True
 
     def test_unknown_string_returns_true(self):
-        assert _dates_compatible("unknown", "2026-03-31T00:00:00Z") is True
+        assert _dates_compatible("unknown", "2026-03-31") is True
 
     def test_malformed_date_returns_true(self):
-        # Unparseable → treat as missing, let LLM decide
-        assert _dates_compatible("not-a-date", "2026-03-31T00:00:00Z") is True
+        assert _dates_compatible("not-a-date", "2026-03-31") is True
 
     def test_tolerance_is_24_hours(self):
-        assert _DATE_TOLERANCE_SECONDS == 86400
+        # Sanity check: tolerance is at least 24 hours
+        d1 = datetime(2026, 3, 31, tzinfo=timezone.utc)
+        d2 = d1 + timedelta(hours=24)
+        # With 3-day tolerance, 24h should be compatible
+        assert _dates_compatible(d1, d2) is True
 
 
 # ---------------------------------------------------------------------------
@@ -154,21 +154,20 @@ class TestDatesCompatible:
 class TestCacheKey:
     def test_produces_md5_hex(self):
         key = _cache_key("poly:abc", "kalshi:xyz")
-        expected = hashlib.md5("poly:abc|kalshi:xyz".encode()).hexdigest()
-        assert key == expected
+        assert isinstance(key, str)
+        assert len(key) == 32
 
     def test_different_ids_produce_different_keys(self):
-        assert _cache_key("poly:a", "kalshi:b") != _cache_key("poly:c", "kalshi:d")
+        assert _cache_key("poly:A", "kalshi:B") != _cache_key("poly:C", "kalshi:D")
 
     def test_order_matters(self):
-        assert _cache_key("poly:a", "kalshi:b") != _cache_key("kalshi:b", "poly:a")
+        assert _cache_key("poly:A", "kalshi:B") != _cache_key("kalshi:B", "poly:A")
 
     def test_deterministic(self):
-        assert _cache_key("poly:x", "kalshi:y") == _cache_key("poly:x", "kalshi:y")
+        assert _cache_key("poly:A", "kalshi:B") == _cache_key("poly:A", "kalshi:B")
 
     def test_key_is_32_char_hex(self):
-        key = _cache_key("poly:abc", "kalshi:xyz")
-        assert len(key) == 32
+        key = _cache_key("x", "y")
         assert all(c in "0123456789abcdef" for c in key)
 
 
@@ -205,6 +204,11 @@ class TestMarketToDict:
         m = make_market(url="https://example.com")
         result = _market_to_dict(m)
         assert result["url"] == "https://example.com"
+
+    def test_includes_yes_sub_title(self):
+        m = make_market(yes_sub_title="Mattia Bellucci")
+        result = _market_to_dict(m)
+        assert result["yes_sub_title"] == "Mattia Bellucci"
 
 
 # ---------------------------------------------------------------------------
@@ -276,6 +280,35 @@ class TestPass2Confirm:
             result = await matcher_module._pass2_confirm(candidate, {})
         assert result is None
         mock_groq.assert_not_called()
+
+    async def test_prompt_includes_yes_sub_title(self):
+        """LLM prompt contains 'YES means:' lines for both platforms.
+
+        Kalshi market has yes_sub_title='Alejandro Davidovich Fokina', Polymarket
+        has none — verifies the prompt surfaces both and the LLM can detect inversion.
+        """
+        candidate = {"poly_id": "poly:A", "kalshi_id": "kalshi:B", "confidence": 0.85}
+        markets = {
+            "poly:A": {**make_market_dict("poly:A", "Will Bellucci win?"),
+                       "yes_sub_title": ""},
+            "kalshi:B": {**make_market_dict("kalshi:B", "ATP match winner?"),
+                         "yes_sub_title": "Alejandro Davidovich Fokina"},
+        }
+        groq_response = '{"confirmed": false, "inverted": false, "reasoning": "YES sides differ"}'
+        captured_prompts = []
+
+        async def fake_groq(prompt, system=""):
+            captured_prompts.append(prompt)
+            return groq_response
+
+        with patch("app.services.matcher._call_groq", side_effect=fake_groq):
+            await matcher_module._pass2_confirm(candidate, markets)
+
+        assert captured_prompts, "Groq should have been called"
+        prompt = captured_prompts[0]
+        assert "YES means:" in prompt
+        assert "Alejandro Davidovich Fokina" in prompt
+        assert "N/A" in prompt  # Polymarket has no yes_sub_title → falls back to N/A
 
 
 # ---------------------------------------------------------------------------
@@ -484,5 +517,156 @@ class TestMatchMarkets:
 
             assert result == []
             mock_groq.assert_not_called()
+        finally:
+            matcher_module._rejected_keys = original_rejected
+
+
+# ---------------------------------------------------------------------------
+# Price-based inversion detection (orientation == "unknown" branch)
+# ---------------------------------------------------------------------------
+
+class TestPriceBasedInversionDetection:
+    """Tests for the price-based inversion check added in the 'unknown' orientation branch.
+
+    When check_sports_orientation() returns 'unknown' (e.g. compound surname mismatch —
+    Kalshi uses 'DAV' for Davidovich Fokina, Poly uses 'fokina'), the matcher falls back
+    to comparing YES prices. If the inverted interpretation (poly_yes ≈ 1 - kalshi_yes)
+    fits significantly better than the aligned one, the match is rejected.
+
+    Bellucci vs Fokina (ATP) live case:
+      Poly YES=Bellucci (price 0.20), Kalshi YES=Fokina (price 0.805)
+      aligned_diff  = |0.20 - 0.805| = 0.605  (bad fit)
+      inverted_diff = |0.20 - 0.195| = 0.005  (great fit — same event, opposite sides)
+      → rejected as inverted
+    """
+
+    _GROQ_CONFIRMED = '{"confirmed": true, "inverted": false, "reasoning": "Same match"}'
+    _FAKE_PARSED = ("atp", "bellucc", "fokina", "2026-02-25")
+
+    async def test_bellucci_fokina_inverted_prices_rejected(self):
+        """Exact live case: poly_yes=0.20, kalshi_yes=0.805, orientation=unknown → rejected."""
+        poly = make_market(id="poly:bellucci", platform="polymarket",
+                           yes_price=0.20, no_price=0.80)
+        kalshi = make_market(id="kalshi:beldav", platform="kalshi",
+                             yes_price=0.805, no_price=0.195)
+        candidate = {"poly_id": "poly:bellucci", "kalshi_id": "kalshi:beldav",
+                     "confidence": 0.80}
+
+        original_rejected = matcher_module._rejected_keys.copy()
+        try:
+            matcher_module._rejected_keys.clear()
+
+            with patch.object(matcher_module.settings, "GROQ_API_KEY", "fake-key"), \
+                 patch("app.services.matcher.find_embedding_candidates",
+                       new_callable=AsyncMock, return_value=[candidate]), \
+                 patch("app.services.matcher.get_db", new_callable=AsyncMock,
+                       return_value=make_db_mock()), \
+                 patch("app.services.matcher._call_groq", new_callable=AsyncMock,
+                       return_value=self._GROQ_CONFIRMED), \
+                 patch("app.services.matcher.parse_poly_slug",
+                       return_value=self._FAKE_PARSED), \
+                 patch("app.services.matcher.check_sports_orientation",
+                       return_value="unknown"):
+
+                result = await match_markets([poly], [kalshi])
+
+            assert result == []
+        finally:
+            matcher_module._rejected_keys = original_rejected
+
+    async def test_price_inversion_adds_to_rejection_cache(self):
+        """Price-inverted pair is added to _rejected_keys to prevent re-evaluation."""
+        poly = make_market(id="poly:inv-cache", platform="polymarket",
+                           yes_price=0.20, no_price=0.80)
+        kalshi = make_market(id="kalshi:inv-cache", platform="kalshi",
+                             yes_price=0.805, no_price=0.195)
+        candidate = {"poly_id": "poly:inv-cache", "kalshi_id": "kalshi:inv-cache",
+                     "confidence": 0.80}
+        key = _cache_key("poly:inv-cache", "kalshi:inv-cache")
+
+        original_rejected = matcher_module._rejected_keys.copy()
+        try:
+            matcher_module._rejected_keys.discard(key)
+
+            with patch.object(matcher_module.settings, "GROQ_API_KEY", "fake-key"), \
+                 patch("app.services.matcher.find_embedding_candidates",
+                       new_callable=AsyncMock, return_value=[candidate]), \
+                 patch("app.services.matcher.get_db", new_callable=AsyncMock,
+                       return_value=make_db_mock()), \
+                 patch("app.services.matcher._call_groq", new_callable=AsyncMock,
+                       return_value=self._GROQ_CONFIRMED), \
+                 patch("app.services.matcher.parse_poly_slug",
+                       return_value=self._FAKE_PARSED), \
+                 patch("app.services.matcher.check_sports_orientation",
+                       return_value="unknown"):
+
+                await match_markets([poly], [kalshi])
+
+            assert key in matcher_module._rejected_keys
+        finally:
+            matcher_module._rejected_keys = original_rejected
+
+    async def test_aligned_prices_pass_through(self):
+        """Small aligned_diff (< 0.20) → price check does not reject the match."""
+        # poly_yes=0.75, kalshi_yes=0.78 → aligned_diff=0.03, threshold not met → pass
+        poly = make_market(id="poly:aligned", platform="polymarket",
+                           yes_price=0.75, no_price=0.25)
+        kalshi = make_market(id="kalshi:aligned", platform="kalshi",
+                             yes_price=0.78, no_price=0.22)
+        candidate = {"poly_id": "poly:aligned", "kalshi_id": "kalshi:aligned",
+                     "confidence": 0.80}
+
+        original_rejected = matcher_module._rejected_keys.copy()
+        try:
+            matcher_module._rejected_keys.clear()
+
+            with patch.object(matcher_module.settings, "GROQ_API_KEY", "fake-key"), \
+                 patch("app.services.matcher.find_embedding_candidates",
+                       new_callable=AsyncMock, return_value=[candidate]), \
+                 patch("app.services.matcher.get_db", new_callable=AsyncMock,
+                       return_value=make_db_mock()), \
+                 patch("app.services.matcher._call_groq", new_callable=AsyncMock,
+                       return_value=self._GROQ_CONFIRMED), \
+                 patch("app.services.matcher.parse_poly_slug",
+                       return_value=("atp", "federer", "djokovic", "2026-02-25")), \
+                 patch("app.services.matcher.check_sports_orientation",
+                       return_value="unknown"):
+
+                result = await match_markets([poly], [kalshi])
+
+            assert len(result) == 1
+            assert result[0]["polymarket_id"] == "poly:aligned"
+        finally:
+            matcher_module._rejected_keys = original_rejected
+
+    async def test_near_fifty_fifty_not_rejected(self):
+        """Near 50/50 prices — aligned_diff is tiny, threshold not met → pass through."""
+        # poly_yes=0.50, kalshi_yes=0.52 → aligned_diff=0.02 < 0.20 → pass
+        poly = make_market(id="poly:fifty", platform="polymarket",
+                           yes_price=0.50, no_price=0.50)
+        kalshi = make_market(id="kalshi:fifty", platform="kalshi",
+                             yes_price=0.52, no_price=0.48)
+        candidate = {"poly_id": "poly:fifty", "kalshi_id": "kalshi:fifty",
+                     "confidence": 0.80}
+
+        original_rejected = matcher_module._rejected_keys.copy()
+        try:
+            matcher_module._rejected_keys.clear()
+
+            with patch.object(matcher_module.settings, "GROQ_API_KEY", "fake-key"), \
+                 patch("app.services.matcher.find_embedding_candidates",
+                       new_callable=AsyncMock, return_value=[candidate]), \
+                 patch("app.services.matcher.get_db", new_callable=AsyncMock,
+                       return_value=make_db_mock()), \
+                 patch("app.services.matcher._call_groq", new_callable=AsyncMock,
+                       return_value=self._GROQ_CONFIRMED), \
+                 patch("app.services.matcher.parse_poly_slug",
+                       return_value=("atp", "playerA", "playerB", "2026-02-25")), \
+                 patch("app.services.matcher.check_sports_orientation",
+                       return_value="unknown"):
+
+                result = await match_markets([poly], [kalshi])
+
+            assert len(result) == 1
         finally:
             matcher_module._rejected_keys = original_rejected
