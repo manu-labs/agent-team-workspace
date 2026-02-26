@@ -203,6 +203,8 @@ class TestPolymarketNormalize:
         # YES token should be index 1 when outcomes were swapped
         assert result.clob_token_ids == "token-yes-id"
 
+    # --- groupItemTitle filter (existing behaviour) ---
+
     def test_game_level_filter_game(self):
         result = poly_normalize(self._make_raw(groupItemTitle="Game 1 Winner"))
         assert result is None
@@ -230,6 +232,68 @@ class TestPolymarketNormalize:
     def test_empty_group_title_allowed(self):
         result = poly_normalize(self._make_raw(groupItemTitle=""))
         assert result is not None
+
+    # --- question field filter (new — issue #310) ---
+
+    def test_game_level_filter_set_in_question(self):
+        # Live false positive: "Set 1: Arango vs Bouzkova" with empty groupItemTitle
+        result = poly_normalize(self._make_raw(
+            question="Set 1: Arango vs Bouzkova",
+            groupItemTitle="",
+        ))
+        assert result is None
+
+    def test_game_level_filter_game_in_question(self):
+        result = poly_normalize(self._make_raw(
+            question="Game 2: Team A vs Team B",
+            groupItemTitle="",
+        ))
+        assert result is None
+
+    def test_game_level_filter_map_in_question(self):
+        result = poly_normalize(self._make_raw(
+            question="Map 3 Winner",
+            groupItemTitle="",
+        ))
+        assert result is None
+
+    def test_game_level_filter_round_in_question(self):
+        result = poly_normalize(self._make_raw(
+            question="Round 1 Winner",
+            groupItemTitle="",
+        ))
+        assert result is None
+
+    def test_game_level_question_filter_case_insensitive(self):
+        result = poly_normalize(self._make_raw(
+            question="set 1: arango vs bouzkova",
+            groupItemTitle="",
+        ))
+        assert result is None
+
+    def test_question_filter_fires_even_when_group_title_missing(self):
+        # groupItemTitle field entirely absent from API response
+        raw = self._make_raw(question="Set 1: Arango vs Bouzkova")
+        raw.pop("groupItemTitle")
+        assert poly_normalize(raw) is None
+
+    def test_normal_match_question_not_filtered(self):
+        # "Arango vs Bouzkova — WTA ATX Open" should pass through
+        result = poly_normalize(self._make_raw(
+            question="Arango vs Bouzkova — WTA ATX Open",
+            groupItemTitle="",
+        ))
+        assert result is not None
+
+    def test_question_with_set_not_at_start_allowed(self):
+        # "Best of 3 sets" does NOT start with "Set \d+" — should pass through
+        result = poly_normalize(self._make_raw(
+            question="Best of 3 sets: Arango vs Bouzkova",
+            groupItemTitle="",
+        ))
+        assert result is not None
+
+    # --- other existing tests ---
 
     def test_missing_id_returns_none(self):
         raw = self._make_raw()
