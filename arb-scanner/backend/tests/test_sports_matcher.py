@@ -1,12 +1,15 @@
 """Tests for app/services/sports_matcher.py
 
 Tests cover:
-- parse_poly_slug: 12+ cases including UCL trailing digit, La Liga 2, edge cases
+- parse_poly_slug: 12+ cases including UCL trailing digit, La Liga 2, edge cases,
+  Valorant (val prefix), NCAAB (ncaamb prefix)
 - parse_kalshi_event_ticker: 15+ cases — 3-tuple (league, teams_str, date),
-  variable-length team codes, optional time prefix stripping, parlay filter
+  variable-length team codes, optional time prefix stripping, parlay filter,
+  Valorant (KXVALORANTGAME), NCAAB (KXNCAAMBGAME)
 - canonical_sports_key: order-independence, sorting
 - match_sports_deterministic: 10+ known cross-platform pairs, moneyline filter,
-  parlay filter, team alias resolution, both team orderings, variable-length teams
+  parlay filter, team alias resolution, both team orderings, variable-length teams,
+  ±1 day date tolerance fallback for timezone edge cases
 """
 
 import pytest
@@ -63,6 +66,14 @@ class TestParsePolySlug:
 
     def test_bundesliga_bun_prefix(self):
         assert parse_poly_slug("bun-bay-bvb-2026-03-08") == ("bundesliga", "bay", "bvb", "2026-03-08")
+
+    def test_valorant_val_prefix(self):
+        # "val" → "valorant"
+        assert parse_poly_slug("val-c9-sen-2026-03-01") == ("valorant", "c9", "sen", "2026-03-01")
+
+    def test_ncaab_ncaamb_prefix(self):
+        # "ncaamb" → "ncaab"
+        assert parse_poly_slug("ncaamb-duk-unc-2026-03-08") == ("ncaab", "duk", "unc", "2026-03-08")
 
     def test_suffix_ignored(self):
         # Extra slug suffix after date should be ignored
@@ -125,6 +136,14 @@ class TestParseKalshiEventTicker:
 
     def test_cs2(self):
         assert parse_kalshi_event_ticker("KXCS2GAME-26MAR15NRGFAZ") == ("cs2", "nrgfaz", "2026-03-15")
+
+    def test_valorant(self):
+        # KXVALORANTGAME → "valorant"
+        assert parse_kalshi_event_ticker("KXVALORANTGAME-26MAR01C9SEN") == ("valorant", "c9sen", "2026-03-01")
+
+    def test_ncaab(self):
+        # KXNCAAMBGAME → "ncaab"
+        assert parse_kalshi_event_ticker("KXNCAAMBGAME-26MAR08DUKUNC") == ("ncaab", "dukunc", "2026-03-08")
 
     # --- Variable-length team codes ---
 
@@ -342,6 +361,22 @@ class TestMatchSportsDeterministic:
         result = match_sports_deterministic(poly, kalshi)
         assert len(result) == 1
 
+    # --- Valorant (new — issue #308) ---
+
+    def test_valorant_matches(self):
+        poly = [_poly("P20", "val-c9-sen-2026-03-01")]
+        kalshi = [_kalshi("K20", "KXVALORANTGAME-26MAR01C9SEN")]
+        result = match_sports_deterministic(poly, kalshi)
+        assert len(result) == 1
+
+    # --- NCAAB (new — issue #308) ---
+
+    def test_ncaab_matches(self):
+        poly = [_poly("P21", "ncaamb-duk-unc-2026-03-08")]
+        kalshi = [_kalshi("K21", "KXNCAAMBGAME-26MAR08DUKUNC")]
+        result = match_sports_deterministic(poly, kalshi)
+        assert len(result) == 1
+
     # --- Team alias resolution ---
 
     def test_team_alias_utah_to_uta(self):
@@ -365,6 +400,44 @@ class TestMatchSportsDeterministic:
         kalshi = [_kalshi("K1", "KXNBAGAME-26FEB25OKCDET")]
         result = match_sports_deterministic(poly, kalshi)
         assert len(result) == 1
+
+    # --- ±1 day date tolerance (new — issue #309) ---
+
+    def test_date_tolerance_plus_one_day(self):
+        # Poly lists game on Feb 25 (UTC), Kalshi lists it on Feb 26 (local time)
+        poly = [_poly("P30", "nba-okc-det-2026-02-25")]
+        kalshi = [_kalshi("K30", "KXNBAGAME-26FEB26OKCDET")]  # Feb 26
+        result = match_sports_deterministic(poly, kalshi)
+        assert len(result) == 1, "Should match via +1 day fallback"
+        assert result[0]["poly_id"] == "polymarket:P30"
+        assert result[0]["kalshi_id"] == "kalshi:K30"
+
+    def test_date_tolerance_minus_one_day(self):
+        # Poly lists game on Feb 26 (UTC), Kalshi lists it on Feb 25 (local time)
+        poly = [_poly("P31", "nba-okc-det-2026-02-26")]
+        kalshi = [_kalshi("K31", "KXNBAGAME-26FEB25OKCDET")]  # Feb 25
+        result = match_sports_deterministic(poly, kalshi)
+        assert len(result) == 1, "Should match via -1 day fallback"
+        assert result[0]["poly_id"] == "polymarket:P31"
+        assert result[0]["kalshi_id"] == "kalshi:K31"
+
+    def test_date_tolerance_exact_preferred_over_fallback(self):
+        # Exact match should be used; the ±1 fallback market should NOT be picked
+        poly = [_poly("P32", "nba-okc-det-2026-02-25")]
+        kalshi = [
+            _kalshi("K_exact", "KXNBAGAME-26FEB25OKCDET"),   # exact
+            _kalshi("K_plus1", "KXNBAGAME-26FEB26OKCDET"),   # +1 day
+        ]
+        result = match_sports_deterministic(poly, kalshi)
+        assert len(result) == 1
+        assert result[0]["kalshi_id"] == "kalshi:K_exact"
+
+    def test_date_tolerance_two_days_no_match(self):
+        # ±2 days is outside the tolerance window — should NOT match
+        poly = [_poly("P33", "nba-okc-det-2026-02-25")]
+        kalshi = [_kalshi("K33", "KXNBAGAME-26FEB27OKCDET")]  # Feb 27 = +2 days
+        result = match_sports_deterministic(poly, kalshi)
+        assert len(result) == 0, "±2 day gap should not match"
 
     # --- Batch matching ---
 
@@ -405,8 +478,9 @@ class TestMatchSportsDeterministic:
         assert len(result) == 0
 
     def test_no_match_different_dates(self):
+        # Two days apart — outside ±1 tolerance
         poly = [_poly("P1", "nba-okc-det-2026-02-25")]
-        kalshi = [_kalshi("K1", "KXNBAGAME-26FEB26OKCDET")]  # Feb 26, not 25
+        kalshi = [_kalshi("K1", "KXNBAGAME-26FEB27OKCDET")]  # Feb 27, +2 days
         result = match_sports_deterministic(poly, kalshi)
         assert len(result) == 0
 
@@ -447,14 +521,17 @@ class TestMatchSportsDeterministic:
 class TestLeagueMaps:
 
     def test_poly_league_map_has_all_required_leagues(self):
-        required = {"nba", "nhl", "ucl", "epl", "es2", "bun", "dota2", "lol", "cs2", "atp", "wta"}
+        required = {
+            "nba", "nhl", "ucl", "epl", "es2", "bun", "dota2", "lol", "cs2",
+            "atp", "wta", "val", "ncaamb",
+        }
         assert required.issubset(POLY_LEAGUE_MAP.keys())
 
     def test_kalshi_league_map_has_all_required_series(self):
         required = {
             "KXNBAGAME", "KXNHLGAME", "KXUCLGAME", "KXEPLGAME", "KXLALIGA2GAME",
             "KXBUNDESLIGAGAME", "KXDOTA2GAME", "KXLOLGAME", "KXCS2GAME",
-            "KXATPGAME", "KXWTAGAME",
+            "KXATPGAME", "KXWTAGAME", "KXVALORANTGAME", "KXNCAAMBGAME",
         }
         assert required.issubset(KALSHI_LEAGUE_MAP.keys())
 
