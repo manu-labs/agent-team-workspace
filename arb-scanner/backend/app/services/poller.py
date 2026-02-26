@@ -10,7 +10,7 @@
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app.config import settings
 from app.database import get_db
@@ -167,6 +167,7 @@ async def _run_cycle() -> None:
       1.   Ingest markets from Polymarket and Kalshi
       1.5. Diff-based cleanup — remove markets/matches no longer returned by either API
       1.6. Sports-only category filter — remove matches whose Kalshi market is not "Sports"
+      1.7. Expired match pruning + stale price history cleanup + DB health check
       2.   Embed new/changed markets (delta embed — skips already-embedded)
       3.   Run matcher on all pairs (skips already-confirmed pairs)
       4.   Sync WS subscriptions — subscribe new matches, unsubscribe removed ones
@@ -280,6 +281,122 @@ async def _run_cycle() -> None:
             await db.commit()
             logger.info("Sports-only filter: removed %d non-sports matches", non_sports_count)
 
+        # --- Step 1.7: Expired match pruning + stale price history cleanup ---
+        #
+        # Part A: Expired match pruning
+        #   Remove matches whose games have passed end_date + EXPIRED_MATCH_BUFFER_HOURS.
+        #   Step 1.5 handles markets removed from the API, but games can briefly linger
+        #   between resolution and API delisting. This catches the stragglers.
+        #   Uses Kalshi end_date (authoritative for game resolution) with Poly as fallback.
+        #   Matches without any end_date are left untouched (safe default).
+        #
+        # Part B: Stale price history pruning
+        #   Delete price_history rows older than PRICE_HISTORY_RETENTION_DAYS to
+        #   keep the Railway volume bounded. Chart data beyond 7 days isn't shown.
+        #
+        # Part C: DB health metrics
+        #   Log row counts and check for orphaned embeddings. Orphans indicate a bug
+        #   in Step 1.5's cleanup order — log a warning if any are found.
+
+        now_utc = datetime.now(timezone.utc)
+
+        # Part A: Expired match pruning
+        expired_cutoff = (
+            now_utc - timedelta(hours=settings.EXPIRED_MATCH_BUFFER_HOURS)
+        ).isoformat()
+
+        # NULLIF converts empty strings to NULL so COALESCE picks the non-empty value.
+        # Matches where both end_dates are empty/NULL are skipped (no date = keep it).
+        expired_count_cur = await db.execute(
+            """SELECT COUNT(*) FROM matches m
+               LEFT JOIN markets pm ON m.polymarket_id = pm.id
+               LEFT JOIN markets km ON m.kalshi_id = km.id
+               WHERE COALESCE(NULLIF(km.end_date, ''), NULLIF(pm.end_date, '')) IS NOT NULL
+                 AND COALESCE(NULLIF(km.end_date, ''), NULLIF(pm.end_date, '')) < ?""",
+            [expired_cutoff],
+        )
+        row = await expired_count_cur.fetchone()
+        expired_count = row[0] if row else 0
+
+        if expired_count > 0:
+            await db.execute(
+                """DELETE FROM price_history WHERE match_id IN (
+                    SELECT m.id FROM matches m
+                    LEFT JOIN markets pm ON m.polymarket_id = pm.id
+                    LEFT JOIN markets km ON m.kalshi_id = km.id
+                    WHERE COALESCE(NULLIF(km.end_date, ''), NULLIF(pm.end_date, '')) IS NOT NULL
+                      AND COALESCE(NULLIF(km.end_date, ''), NULLIF(pm.end_date, '')) < ?
+                )""",
+                [expired_cutoff],
+            )
+            await db.execute(
+                """DELETE FROM matches WHERE id IN (
+                    SELECT m.id FROM matches m
+                    LEFT JOIN markets pm ON m.polymarket_id = pm.id
+                    LEFT JOIN markets km ON m.kalshi_id = km.id
+                    WHERE COALESCE(NULLIF(km.end_date, ''), NULLIF(pm.end_date, '')) IS NOT NULL
+                      AND COALESCE(NULLIF(km.end_date, ''), NULLIF(pm.end_date, '')) < ?
+                )""",
+                [expired_cutoff],
+            )
+            await db.commit()
+            logger.info(
+                "Expired match pruning: removed %d matches (end_date + %dh buffer < now)",
+                expired_count, settings.EXPIRED_MATCH_BUFFER_HOURS,
+            )
+
+        # Part B: Stale price history pruning
+        history_cutoff = (
+            now_utc - timedelta(days=settings.PRICE_HISTORY_RETENTION_DAYS)
+        ).isoformat()
+
+        stale_count_cur = await db.execute(
+            "SELECT COUNT(*) FROM price_history WHERE recorded_at < ?",
+            [history_cutoff],
+        )
+        row = await stale_count_cur.fetchone()
+        stale_history_count = row[0] if row else 0
+
+        if stale_history_count > 0:
+            await db.execute(
+                "DELETE FROM price_history WHERE recorded_at < ?",
+                [history_cutoff],
+            )
+            await db.commit()
+            logger.info(
+                "Price history cleanup: pruned %d rows older than %d days",
+                stale_history_count, settings.PRICE_HISTORY_RETENTION_DAYS,
+            )
+
+        # Part C: DB health metrics
+        markets_count = (await (await db.execute("SELECT COUNT(*) FROM markets")).fetchone())[0]
+        matches_count = (await (await db.execute("SELECT COUNT(*) FROM matches")).fetchone())[0]
+        embeddings_count = (await (await db.execute("SELECT COUNT(*) FROM market_embeddings")).fetchone())[0]
+        history_count = (await (await db.execute("SELECT COUNT(*) FROM price_history")).fetchone())[0]
+        orphan_count = (await (await db.execute(
+            "SELECT COUNT(*) FROM market_embeddings WHERE market_id NOT IN (SELECT id FROM markets)"
+        )).fetchone())[0]
+
+        if orphan_count > 0:
+            logger.warning(
+                "DB health: %d orphaned embeddings detected — Step 1.5 cleanup may be broken",
+                orphan_count,
+            )
+
+        logger.info(
+            "DB health: markets=%d, matches=%d, embeddings=%d, price_history=%d",
+            markets_count, matches_count, embeddings_count, history_count,
+        )
+
+        cleanup_result = {
+            "expired_matches_pruned": expired_count,
+            "stale_history_pruned": stale_history_count,
+            "db_markets": markets_count,
+            "db_matches": matches_count,
+            "db_embeddings": embeddings_count,
+            "db_price_history": history_count,
+        }
+
         # --- Step 2: Embed new/changed markets ---
         embed_count = await embed_new_markets(db)
         logger.info("Embed delta: %d markets embedded", embed_count)
@@ -367,5 +484,6 @@ async def _run_cycle() -> None:
             "kalshi": {k: v for k, v in kalshi_result.items() if k != "market_ids"},
             "embed_count": embed_count,
             "match_result": match_result,
+            "cleanup": cleanup_result,
         }
         logger.info("Discovery cycle complete in %.1fs", elapsed)

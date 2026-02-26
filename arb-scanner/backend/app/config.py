@@ -18,6 +18,13 @@ class Settings(BaseSettings):
     MIN_SPORTS_VOLUME: int = 0
     CORS_ORIGINS: str = '["*"]'
     WS_RECONNECT_MAX_SECONDS: int = 60
+    # Cleanup settings — used by the discovery cycle's Step 1.7
+    # Buffer after a match's end_date before it is pruned (hours).
+    # Provides a 2h window after game resolution to capture final prices.
+    EXPIRED_MATCH_BUFFER_HOURS: int = 2
+    # How many days of price history to retain per match.
+    # Older rows are pruned each cycle to bound Railway volume usage.
+    PRICE_HISTORY_RETENTION_DAYS: int = 7
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 
